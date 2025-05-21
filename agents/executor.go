@@ -133,8 +133,14 @@ func (e *Executor) doAction(
 			Observation: fmt.Sprintf("%s is not a valid tool, try another one", action.Tool),
 		}), nil
 	}
+	if e.CallbacksHandler != nil {
+		e.CallbacksHandler.HandleToolStart(ctx, fmt.Sprintf("%s: %s", action.Tool, action.ToolInput))
+	}
 
 	observation, err := tool.Call(ctx, strings.TrimSuffix(action.ToolInput, "\nObservation:"))
+	if e.CallbacksHandler != nil {
+		e.CallbacksHandler.HandleToolEnd(ctx, fmt.Sprintf("%s: %s", action.Tool, observation))
+	}
 	if err != nil {
 		return nil, err
 	}
