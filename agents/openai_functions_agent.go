@@ -250,6 +250,9 @@ func (o *OpenAIFunctionsAgent) ParseOutput(contentResp *llms.ContentResponse) (
 			toolInputCheck, ok := arg1.(string)
 			if ok {
 				toolInput = toolInputCheck
+			} else {
+				bts, _ := json.Marshal(arg1)
+				toolInput = string(bts)
 			}
 		}
 
