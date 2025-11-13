@@ -63,6 +63,8 @@ type Store struct {
 	preDeleteCollection bool
 	vectorDimensions    int
 	hnswIndex           *HNSWIndex
+	tryCreateExtention  bool
+	usePGAdvisoryLocks  bool
 }
 
 type HNSWIndex struct {
@@ -133,6 +135,9 @@ func (s *Store) init(ctx context.Context) error {
 }
 
 func (s Store) createVectorExtensionIfNotExists(ctx context.Context, tx pgx.Tx) error {
+	if !s.tryCreateExtention {
+		return nil
+	}
 	// inspired by
 	// https://github.com/langchain-ai/langchain/blob/v0.0.340/libs/langchain/langchain/vectorstores/pgvector.py#L167
 	// The advisor lock fixes issue arising from concurrent
@@ -140,8 +145,10 @@ func (s Store) createVectorExtensionIfNotExists(ctx context.Context, tx pgx.Tx) 
 	// https://github.com/langchain-ai/langchain/issues/12933
 	// For more information see:
 	// https://www.postgresql.org/docs/16/explicit-locking.html#ADVISORY-LOCKS
-	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", pgLockIDExtension); err != nil {
-		return err
+	if s.usePGAdvisoryLocks {
+		if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", pgLockIDExtension); err != nil {
+			return err
+		}
 	}
 	if _, err := tx.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS vector"); err != nil {
 		return err
@@ -157,8 +164,10 @@ func (s Store) createCollectionTableIfNotExists(ctx context.Context, tx pgx.Tx) 
 	// https://github.com/langchain-ai/langchain/issues/12933
 	// For more information see:
 	// https://www.postgresql.org/docs/16/explicit-locking.html#ADVISORY-LOCKS
-	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", pgLockIDCollectionTable); err != nil {
-		return err
+	if s.usePGAdvisoryLocks {
+		if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", pgLockIDCollectionTable); err != nil {
+			return err
+		}
 	}
 	sql := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
 	name varchar,
@@ -180,10 +189,11 @@ func (s Store) createEmbeddingTableIfNotExists(ctx context.Context, tx pgx.Tx) e
 	// https://github.com/langchain-ai/langchain/issues/12933
 	// For more information see:
 	// https://www.postgresql.org/docs/16/explicit-locking.html#ADVISORY-LOCKS
-	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", pgLockIDEmbeddingTable); err != nil {
-		return err
+	if s.usePGAdvisoryLocks {
+		if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", pgLockIDEmbeddingTable); err != nil {
+			return err
+		}
 	}
-
 	vectorDimensions := ""
 	if s.vectorDimensions > 0 {
 		vectorDimensions = fmt.Sprintf("(%d)", s.vectorDimensions)
