@@ -12,6 +12,8 @@ const (
 	DefaultPreDeleteCollection      = false
 	DefaultEmbeddingStoreTableName  = "langchain_pg_embedding"
 	DefaultCollectionStoreTableName = "langchain_pg_collection"
+	DefaultTryCreateExtention       = false
+	DefaultUsePGAdvisoryLocks       = false
 )
 
 // ErrInvalidOptions is returned when the options given are invalid.
@@ -19,6 +21,20 @@ var ErrInvalidOptions = errors.New("invalid options")
 
 // Option is a function type that can be used to modify the client.
 type Option func(p *Store)
+
+// WithTryCreateExtention is an option for specifying if the extension should be created if it does not exist.
+func WithTryCreateExtention(tryCreateExtention bool) Option {
+	return func(p *Store) {
+		p.tryCreateExtention = tryCreateExtention
+	}
+}
+
+// WithUsePGAdvisoryLocks is an option for specifying if the PG advisory locks should be used.
+func WithUsePGAdvisoryLocks(usePGAdvisoryLocks bool) Option {
+	return func(p *Store) {
+		p.usePGAdvisoryLocks = usePGAdvisoryLocks
+	}
+}
 
 // WithEmbedder is an option for setting the embedder to use. Must be set.
 func WithEmbedder(e embeddings.Embedder) Option {
@@ -108,6 +124,8 @@ func applyClientOptions(opts ...Option) (Store, error) {
 		preDeleteCollection: DefaultPreDeleteCollection,
 		embeddingTableName:  DefaultEmbeddingStoreTableName,
 		collectionTableName: DefaultCollectionStoreTableName,
+		tryCreateExtention:  DefaultTryCreateExtention,
+		usePGAdvisoryLocks:  DefaultUsePGAdvisoryLocks,
 	}
 
 	for _, opt := range opts {
