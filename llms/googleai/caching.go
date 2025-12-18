@@ -5,8 +5,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/google/generative-ai-go/genai"
 	"github.com/tmc/langchaingo/llms"
+	"google.golang.org/genai"
 )
 
 // CachingHelper provides utilities for working with Google AI's cached content feature.
@@ -58,16 +58,16 @@ func (ch *CachingHelper) CreateCachedContent(
 	var systemInstruction *genai.Content
 
 	for _, msg := range messages {
-		parts := make([]genai.Part, 0, len(msg.Parts))
+		parts := make([]*genai.Part, 0, len(msg.Parts))
 		for _, part := range msg.Parts {
 			switch p := part.(type) {
 			case llms.TextContent:
-				parts = append(parts, genai.Text(p.Text))
+				parts = append(parts, genai.NewPartFromText(p.Text))
 			case llms.CachedContent:
 				// Extract the underlying content if it's wrapped with cache control
 				// (though Google AI doesn't use inline cache control like Anthropic)
 				if textPart, ok := p.ContentPart.(llms.TextContent); ok {
-					parts = append(parts, genai.Text(textPart.Text))
+					parts = append(parts, genai.NewPartFromText(textPart.Text))
 				}
 			}
 		}
@@ -90,30 +90,34 @@ func (ch *CachingHelper) CreateCachedContent(
 		}
 	}
 
-	// Create the cached content
-	cc := &genai.CachedContent{
-		Model:             modelName,
+	// Create the cached content using the new SDK
+	cc := &genai.CreateCachedContentConfig{
 		Contents:          contents,
 		SystemInstruction: systemInstruction,
-		Expiration: genai.ExpireTimeOrTTL{
-			TTL: ttl,
-		},
+		TTL:               ttl,
 	}
 
-	return ch.client.CreateCachedContent(ctx, cc)
+	return ch.client.Caches.Create(ctx, modelName, cc)
 }
 
 // GetCachedContent retrieves existing cached content by name.
 func (ch *CachingHelper) GetCachedContent(ctx context.Context, name string) (*genai.CachedContent, error) {
-	return ch.client.GetCachedContent(ctx, name)
+	return ch.client.Caches.Get(ctx, name, nil)
 }
 
 // DeleteCachedContent removes cached content.
 func (ch *CachingHelper) DeleteCachedContent(ctx context.Context, name string) error {
-	return ch.client.DeleteCachedContent(ctx, name)
+	_, err := ch.client.Caches.Delete(ctx, name, nil)
+	return err
 }
 
-// ListCachedContents returns an iterator for all cached content.
-func (ch *CachingHelper) ListCachedContents(ctx context.Context) *genai.CachedContentIterator {
-	return ch.client.ListCachedContents(ctx)
+// ListCachedContents returns all cached content as a slice.
+// The new SDK uses Page-based pagination.
+func (ch *CachingHelper) ListCachedContents(ctx context.Context) ([]*genai.CachedContent, error) {
+	page, err := ch.client.Caches.List(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return page.Items, nil
 }

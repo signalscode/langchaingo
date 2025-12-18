@@ -6,9 +6,9 @@ import (
 	"context"
 	"strings"
 
-	"github.com/google/generative-ai-go/genai"
 	"github.com/tmc/langchaingo/callbacks"
 	"github.com/tmc/langchaingo/llms"
+	"google.golang.org/genai"
 )
 
 // GoogleAI is a type that represents a Google AI API client.
@@ -34,10 +34,19 @@ func New(ctx context.Context, opts ...Option) (*GoogleAI, error) {
 
 	gi := &GoogleAI{
 		opts:  clientOptions,
-		model: clientOptions.DefaultModel, // Store the default model
+		model: clientOptions.DefaultModel,
 	}
 
-	client, err := genai.NewClient(ctx, clientOptions.ClientOptions...)
+	// Build the ClientConfig for the new SDK
+	cc := &genai.ClientConfig{
+		APIKey:     clientOptions.APIKey,
+		Backend:    clientOptions.Backend,
+		Project:    clientOptions.CloudProject,
+		Location:   clientOptions.CloudLocation,
+		HTTPClient: clientOptions.HTTPClient,
+	}
+
+	client, err := genai.NewClient(ctx, cc)
 	if err != nil {
 		return gi, err
 	}
@@ -48,11 +57,10 @@ func New(ctx context.Context, opts ...Option) (*GoogleAI, error) {
 
 // Close closes the underlying genai client.
 // This should be called when the GoogleAI instance is no longer needed
-// to prevent memory leaks from the underlying gRPC connections.
+// to prevent memory leaks from the underlying connections.
 func (g *GoogleAI) Close() error {
-	if g.client != nil {
-		return g.client.Close()
-	}
+	// The new SDK client doesn't have a Close method
+	// as it uses HTTP client pooling
 	return nil
 }
 
@@ -70,8 +78,8 @@ func (g *GoogleAI) SupportsReasoning() bool {
 		return true
 	}
 
-	// Future Gemini 3+ models expected to support reasoning
-	if strings.Contains(model, "gemini-3") || strings.Contains(model, "gemini-4") {
+	// Gemini 2.5 and 3+ models support reasoning
+	if strings.Contains(model, "gemini-2.5") || strings.Contains(model, "gemini-3") || strings.Contains(model, "gemini-4") {
 		return true
 	}
 

@@ -102,6 +102,10 @@ type ToolCall struct {
 	Type string `json:"type"`
 	// FunctionCall is the function call to be executed.
 	FunctionCall *FunctionCall `json:"function,omitempty"`
+	// ThoughtSignature is an opaque signature for Gemini 3+ models that must be
+	// passed back exactly as received when sending conversation history.
+	// For parallel function calls, only the first call will have a signature.
+	ThoughtSignature string `json:"thought_signature,omitempty"`
 }
 
 func (ToolCall) isPart() {}
@@ -117,6 +121,36 @@ type ToolCallResponse struct {
 }
 
 func (ToolCallResponse) isPart() {}
+
+// ThoughtContent represents a thought/reasoning content from models that support
+// extended thinking (e.g., Gemini 3 models). It contains an opaque signature that
+// must be passed back in subsequent requests to maintain reasoning context.
+// This is required for tool calls and multi-turn conversations with thinking models.
+type ThoughtContent struct {
+	// Text is the thought/reasoning text (may be empty if the model doesn't expose it).
+	Text string `json:"text,omitempty"`
+	// Signature is an opaque signature for the thought that must be passed back
+	// in subsequent requests. This is required for Gemini 3+ models when using
+	// tool calls or multi-turn conversations.
+	Signature string `json:"signature,omitempty"`
+}
+
+func (tc ThoughtContent) String() string {
+	if tc.Text != "" {
+		return tc.Text
+	}
+	return "[thought signature]"
+}
+
+func (ThoughtContent) isPart() {}
+
+// ThoughtPart creates a ThoughtContent from the given text and signature.
+func ThoughtPart(text string, signature string) ThoughtContent {
+	return ThoughtContent{
+		Text:      text,
+		Signature: signature,
+	}
+}
 
 // ContentResponse is the response returned by a GenerateContent call.
 // It can potentially return multiple content choices.
@@ -146,6 +180,11 @@ type ContentChoice struct {
 
 	// This field is only used with the deepseek-reasoner model and represents the reasoning contents of the assistant message before the final answer.
 	ReasoningContent string
+
+	// ThoughtParts contains thought/reasoning parts from models that support
+	// extended thinking (e.g., Gemini 3 models). These must be included in
+	// subsequent messages to maintain reasoning context for tool calls.
+	ThoughtParts []ThoughtContent
 }
 
 // TextParts is a helper function to create a MessageContent with a role and a
@@ -176,9 +215,20 @@ func ShowMessageContents(w io.Writer, msgs []MessageContent) {
 			case BinaryContent:
 				fmt.Fprintf(w, "BinaryContent MIME=%q, size=%d\n", pp.MIMEType, len(pp.Data))
 			case ToolCall:
-				fmt.Fprintf(w, "ToolCall ID=%v, Type=%v, Func=%v(%v)\n", pp.ID, pp.Type, pp.FunctionCall.Name, pp.FunctionCall.Arguments)
+				sigInfo := ""
+				if pp.ThoughtSignature != "" {
+					sigInfo = fmt.Sprintf(", Signature=%s", pp.ThoughtSignature)
+				}
+				var funcName, funcArgs string
+				if pp.FunctionCall != nil {
+					funcName = pp.FunctionCall.Name
+					funcArgs = pp.FunctionCall.Arguments
+				}
+				fmt.Fprintf(w, "ToolCall ID=%v, Type=%v, Func=%v(%v)%s\n", pp.ID, pp.Type, funcName, funcArgs, sigInfo)
 			case ToolCallResponse:
 				fmt.Fprintf(w, "ToolCallResponse ID=%v, Name=%v, Content=%v\n", pp.ToolCallID, pp.Name, pp.Content)
+			case ThoughtContent:
+				fmt.Fprintf(w, "ThoughtContent Text=%q, SignatureLen=%d\n", pp.Text, len(pp.Signature))
 			default:
 				fmt.Fprintf(w, "unknown type %T\n", pp)
 			}

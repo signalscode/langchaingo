@@ -1,11 +1,9 @@
 package vertex
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/tmc/langchaingo/llms/googleai"
-	"github.com/tmc/langchaingo/llms/googleai/internal/palmclient"
 )
 
 func TestCreateEmbedding(t *testing.T) {
@@ -13,7 +11,6 @@ func TestCreateEmbedding(t *testing.T) {
 		name           string
 		texts          []string
 		mockEmbeddings [][]float32
-		mockErr        error
 		wantErr        bool
 		errContains    string
 	}{
@@ -35,56 +32,20 @@ func TestCreateEmbedding(t *testing.T) {
 			},
 			wantErr: false,
 		},
-		{
-			name:           "empty response error",
-			texts:          []string{"Test text"},
-			mockEmbeddings: [][]float32{},
-			wantErr:        true,
-			errContains:    "empty response",
-		},
-		{
-			name:  "mismatched count error",
-			texts: []string{"First", "Second"},
-			mockEmbeddings: [][]float32{
-				{0.1, 0.2, 0.3},
-			},
-			wantErr:     true,
-			errContains: "returned 1 embeddings for 2 texts",
-		},
-		{
-			name:        "palm client error",
-			texts:       []string{"Test"},
-			mockErr:     errors.New("API error"),
-			wantErr:     true,
-			errContains: "API error",
-		},
-		{
-			name:           "empty texts",
-			texts:          []string{},
-			mockEmbeddings: [][]float32{},
-			wantErr:        true,
-			errContains:    "empty response",
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create a Vertex instance with mocked palm client
+			// Create a Vertex instance
 			v := &Vertex{
 				opts: googleai.DefaultOptions(),
-				// We can't easily mock the palmClient field since it's private
-				// and the type is from an internal package
 			}
 
-			// For actual testing, we'd need to either:
-			// 1. Make palmClient an interface
-			// 2. Use dependency injection
-			// 3. Use a testing package that can mock private fields
-
-			// Since we can't directly test CreateEmbedding without modifying
-			// the production code, we'll test what we can
-			if v.opts.DefaultEmbeddingModel != "embedding-001" {
-				t.Errorf("expected default embedding model 'embedding-001', got %q", v.opts.DefaultEmbeddingModel)
+			// For actual testing, we'd need a mocked client
+			// Since we can't directly test CreateEmbedding without the client,
+			// we test the defaults
+			if v.opts.DefaultEmbeddingModel != "text-embedding-004" {
+				t.Errorf("expected default embedding model 'text-embedding-004', got %q", v.opts.DefaultEmbeddingModel)
 			}
 		})
 	}
@@ -179,21 +140,6 @@ func TestEmbeddingDimensions(t *testing.T) {
 			// Document test case for future implementation
 			_ = tc
 		})
-	}
-}
-
-// TestEmbeddingRequestStructure verifies the structure of embedding requests
-func TestEmbeddingRequestStructure(t *testing.T) {
-	// This test documents the expected structure of palmclient.EmbeddingRequest
-	req := &palmclient.EmbeddingRequest{
-		Input: []string{"test text"},
-	}
-
-	if len(req.Input) != 1 {
-		t.Errorf("expected 1 input, got %d", len(req.Input))
-	}
-	if req.Input[0] != "test text" {
-		t.Errorf("expected input 'test text', got %q", req.Input[0])
 	}
 }
 

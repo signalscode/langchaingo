@@ -1,8 +1,6 @@
 module github.com/tmc/langchaingo
 
-go 1.24.4
-
-toolchain go1.24.6
+go 1.25.5
 
 // Note: Thanks to Go's module graph pruning (https://go.dev/ref/mod#graph-pruning),
 // importing langchaingo does NOT pull in all dependencies listed below. You only
@@ -33,8 +31,8 @@ require (
 	github.com/IBM/watsonx-go v1.0.0
 	github.com/cohere-ai/tokenizer v1.1.2
 	github.com/gage-technologies/mistral-go v1.1.0
-	github.com/google/generative-ai-go v0.15.1
 	github.com/pkoukk/tiktoken-go v0.1.6
+	google.golang.org/genai v1.40.0
 )
 
 // Vector stores
@@ -54,7 +52,6 @@ require (
 // Cloud platforms and AI services
 require (
 	cloud.google.com/go/aiplatform v1.69.0
-	cloud.google.com/go/vertexai v0.12.0
 	github.com/aws/aws-sdk-go-v2 v1.36.3
 	github.com/aws/aws-sdk-go-v2/config v1.29.4
 	github.com/aws/aws-sdk-go-v2/service/bedrockagent v1.40.0
@@ -117,7 +114,6 @@ require (
 // Cloud platforms and AI services - indirect
 require (
 	cloud.google.com/go v0.116.0 // indirect
-	cloud.google.com/go/ai v0.7.0 // indirect
 	cloud.google.com/go/alloydb v1.14.0 // indirect
 	cloud.google.com/go/auth v0.14.0 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.7 // indirect
@@ -330,7 +326,7 @@ require (
 	github.com/form3tech-oss/jwt-go v3.2.3+incompatible // indirect
 	github.com/godbus/dbus/v5 v5.0.4 // indirect
 	github.com/google/btree v1.1.3 // indirect
-	github.com/gorilla/websocket v1.5.0 // indirect
+	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway v1.16.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.18.0 // indirect

@@ -107,6 +107,8 @@ func TestGoogleAI_ReasoningIntegration(t *testing.T) {
 	}
 
 	// Test reasoning with a complex problem
+	// Note: Gemini 2.0 supports reasoning but may not support thinking_level parameter
+	// So we test without explicit thinking mode for now
 	messages := []llms.MessageContent{
 		{
 			Role: llms.ChatMessageTypeHuman,
@@ -118,7 +120,7 @@ func TestGoogleAI_ReasoningIntegration(t *testing.T) {
 
 	resp, err := client.GenerateContent(ctx, messages,
 		llms.WithMaxTokens(200),
-		llms.WithThinkingMode(llms.ThinkingModeMedium), // Note: Google AI may not use this yet
+		// Note: thinking_level is only supported for Gemini 3+ models
 	)
 	if err != nil {
 		t.Fatalf("Failed to generate content: %v", err)
@@ -149,9 +151,10 @@ func TestGoogleAI_CachingSupport(t *testing.T) {
 	}
 
 	// Create cached content with a large system prompt
+	// Google AI requires at least 4096 tokens for cached content
 	longContext := `You are an expert code reviewer with deep knowledge of Go best practices.
 	Always consider performance, security, and maintainability in your reviews.
-	` + strings.Repeat("This is padding text to ensure we have enough tokens for caching. ", 100)
+	` + strings.Repeat("This is padding text to ensure we have enough tokens for caching. ", 500)
 
 	cached, err := helper.CreateCachedContent(ctx, "gemini-2.0-flash",
 		[]llms.MessageContent{
