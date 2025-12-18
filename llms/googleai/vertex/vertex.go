@@ -65,7 +65,10 @@ func (g *Vertex) GenerateContent(
 	}
 
 	// Build the GenerateContentConfig
-	config := g.buildGenerateContentConfig(&opts)
+	config, err := g.buildGenerateContentConfig(&opts)
+	if err != nil {
+		return nil, err
+	}
 
 	// Convert messages to genai.Content
 	contents, systemInstruction, err := g.convertMessages(messages)
@@ -110,7 +113,7 @@ func (g *Vertex) GenerateContent(
 }
 
 // buildGenerateContentConfig builds a GenerateContentConfig from CallOptions.
-func (g *Vertex) buildGenerateContentConfig(opts *llms.CallOptions) *genai.GenerateContentConfig {
+func (g *Vertex) buildGenerateContentConfig(opts *llms.CallOptions) (*genai.GenerateContentConfig, error) {
 	temperature := float32(opts.Temperature)
 	topP := float32(opts.TopP)
 	topK := float32(opts.TopK)
@@ -147,9 +150,10 @@ func (g *Vertex) buildGenerateContentConfig(opts *llms.CallOptions) *genai.Gener
 	// Configure tools if present
 	if len(opts.Tools) > 0 {
 		tools, err := convertTools(opts.Tools)
-		if err == nil {
-			config.Tools = tools
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert tools: %w", err)
 		}
+		config.Tools = tools
 	}
 
 	// Set response MIME type
@@ -170,7 +174,7 @@ func (g *Vertex) buildGenerateContentConfig(opts *llms.CallOptions) *genai.Gener
 		}
 	}
 
-	return config
+	return config, nil
 }
 
 // toGenAIHarmBlockThreshold converts HarmBlockThreshold to genai.HarmBlockThreshold.
@@ -385,6 +389,9 @@ func convertParts(parts []llms.ContentPart) ([]*genai.Part, error) {
 			if err != nil {
 				return nil, err
 			}
+			if typ != "" {
+				typ = "image/" + typ
+			}
 			out = genai.NewPartFromBytes(data, typ)
 		case llms.ToolCall:
 			fc := p.FunctionCall
@@ -393,6 +400,7 @@ func convertParts(parts []llms.ContentPart) ([]*genai.Part, error) {
 				return convertedParts, err
 			}
 			out = genai.NewPartFromFunctionCall(fc.Name, argsMap)
+			out.ThoughtSignature = []byte(p.ThoughtSignature)
 		case llms.ToolCallResponse:
 			out = genai.NewPartFromFunctionResponse(p.Name, map[string]any{
 				"response": p.Content,
