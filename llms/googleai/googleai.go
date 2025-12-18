@@ -64,7 +64,10 @@ func (g *GoogleAI) GenerateContent(
 	}
 
 	// Build the GenerateContentConfig
-	config := g.buildGenerateContentConfig(&opts)
+	config, err := g.buildGenerateContentConfig(&opts)
+	if err != nil {
+		return nil, err
+	}
 
 	// Convert messages to genai.Content
 	contents, systemInstruction, err := g.convertMessages(messages)
@@ -109,7 +112,7 @@ func (g *GoogleAI) GenerateContent(
 }
 
 // buildGenerateContentConfig builds a GenerateContentConfig from CallOptions.
-func (g *GoogleAI) buildGenerateContentConfig(opts *llms.CallOptions) *genai.GenerateContentConfig {
+func (g *GoogleAI) buildGenerateContentConfig(opts *llms.CallOptions) (*genai.GenerateContentConfig, error) {
 	temperature := float32(opts.Temperature)
 	topP := float32(opts.TopP)
 	topK := float32(opts.TopK)
@@ -146,9 +149,10 @@ func (g *GoogleAI) buildGenerateContentConfig(opts *llms.CallOptions) *genai.Gen
 	// Configure tools if present
 	if len(opts.Tools) > 0 {
 		tools, err := convertTools(opts.Tools)
-		if err == nil {
-			config.Tools = tools
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert tools: %w", err)
 		}
+		config.Tools = tools
 	}
 
 	// Set response MIME type
@@ -193,7 +197,7 @@ func (g *GoogleAI) buildGenerateContentConfig(opts *llms.CallOptions) *genai.Gen
 		}
 	}
 
-	return config
+	return config, nil
 }
 
 // isGemini3OrLater checks if the model is Gemini 3 or later.
