@@ -169,7 +169,61 @@ func (g *GoogleAI) buildGenerateContentConfig(opts *llms.CallOptions) *genai.Gen
 		}
 	}
 
+	// Configure thinking settings for Gemini 3+ models
+	thinkingConfig := llms.GetThinkingConfig(opts)
+	if thinkingConfig != nil {
+		config.ThinkingConfig = convertThinkingConfig(thinkingConfig)
+	} else if len(opts.Tools) > 0 && isGemini3OrLater(opts.Model) {
+		// For Gemini 3+ models with tools, enable minimal thinking by default
+		// since thought signatures are required for function calling.
+		// See: https://ai.google.dev/gemini-api/docs/thought-signatures
+		config.ThinkingConfig = &genai.ThinkingConfig{
+			ThinkingLevel: genai.ThinkingLevelMinimal,
+		}
+	}
+
 	return config
+}
+
+// isGemini3OrLater checks if the model is Gemini 3 or later.
+func isGemini3OrLater(model string) bool {
+	modelLower := strings.ToLower(model)
+	return strings.Contains(modelLower, "gemini-3") ||
+		strings.Contains(modelLower, "gemini-4") ||
+		strings.Contains(modelLower, "gemini-5")
+}
+
+// convertThinkingConfig converts llms.ThinkingConfig to genai.ThinkingConfig.
+func convertThinkingConfig(cfg *llms.ThinkingConfig) *genai.ThinkingConfig {
+	if cfg == nil {
+		return nil
+	}
+
+	genaiConfig := &genai.ThinkingConfig{
+		IncludeThoughts: cfg.ReturnThinking,
+	}
+
+	// Set thinking level based on mode
+	switch cfg.Mode {
+	case llms.ThinkingModeLow:
+		genaiConfig.ThinkingLevel = genai.ThinkingLevelLow
+	case llms.ThinkingModeMedium:
+		genaiConfig.ThinkingLevel = genai.ThinkingLevelMedium
+	case llms.ThinkingModeHigh:
+		genaiConfig.ThinkingLevel = genai.ThinkingLevelHigh
+	case llms.ThinkingModeNone:
+		genaiConfig.ThinkingLevel = genai.ThinkingLevelMinimal
+	default:
+		// ThinkingModeAuto or unspecified - let the API decide
+	}
+
+	// Set explicit token budget if provided
+	if cfg.BudgetTokens > 0 {
+		budget := int32(cfg.BudgetTokens)
+		genaiConfig.ThinkingBudget = &budget
+	}
+
+	return genaiConfig
 }
 
 // convertMessages converts langchaingo messages to genai.Content.
