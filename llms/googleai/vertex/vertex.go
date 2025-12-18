@@ -393,6 +393,7 @@ func convertParts(parts []llms.ContentPart) ([]*genai.Part, error) {
 				return convertedParts, err
 			}
 			out = genai.NewPartFromFunctionCall(fc.Name, argsMap)
+			out.ThoughtSignature = []byte(p.ThoughtSignature)
 		case llms.ToolCallResponse:
 			out = genai.NewPartFromFunctionResponse(p.Name, map[string]any{
 				"response": p.Content,
