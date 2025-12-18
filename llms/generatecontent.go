@@ -219,7 +219,12 @@ func ShowMessageContents(w io.Writer, msgs []MessageContent) {
 				if pp.ThoughtSignature != "" {
 					sigInfo = fmt.Sprintf(", Signature=%s", pp.ThoughtSignature)
 				}
-				fmt.Fprintf(w, "ToolCall ID=%v, Type=%v, Func=%v(%v)%s\n", pp.ID, pp.Type, pp.FunctionCall.Name, pp.FunctionCall.Arguments, sigInfo)
+				var funcName, funcArgs string
+				if pp.FunctionCall != nil {
+					funcName = pp.FunctionCall.Name
+					funcArgs = pp.FunctionCall.Arguments
+				}
+				fmt.Fprintf(w, "ToolCall ID=%v, Type=%v, Func=%v(%v)%s\n", pp.ID, pp.Type, funcName, funcArgs, sigInfo)
 			case ToolCallResponse:
 				fmt.Fprintf(w, "ToolCallResponse ID=%v, Name=%v, Content=%v\n", pp.ToolCallID, pp.Name, pp.Content)
 			case ThoughtContent:

@@ -35,6 +35,10 @@ func (g *GoogleAI) CreateEmbedding(ctx context.Context, texts []string) ([][]flo
 			return nil, fmt.Errorf("failed to create embeddings: %w", err)
 		}
 
+		if resp.Embeddings == nil {
+			return nil, fmt.Errorf("no embeddings returned for batch")
+		}
+
 		// Extract embeddings from response
 		for _, emb := range resp.Embeddings {
 			results = append(results, emb.Values)
