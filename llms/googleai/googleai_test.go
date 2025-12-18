@@ -124,7 +124,7 @@ func TestGoogleAIGenerateContentWithMultipleMessages(t *testing.T) {
 		},
 	}
 
-	resp, err := llm.GenerateContent(context.Background(), content, llms.WithModel("gemini-1.5-flash"))
+	resp, err := llm.GenerateContent(context.Background(), content, llms.WithModel("gemini-2.5-flash"))
 	if err != nil {
 		// Check if this is a recording mismatch error
 		if strings.Contains(err.Error(), "cached HTTP response not found") {
@@ -156,7 +156,7 @@ func TestGoogleAIGenerateContentWithSystemMessage(t *testing.T) {
 		},
 	}
 
-	resp, err := llm.GenerateContent(context.Background(), content, llms.WithModel("gemini-1.5-flash"))
+	resp, err := llm.GenerateContent(context.Background(), content, llms.WithModel("gemini-2.5-flash"))
 	if err != nil {
 		// Check if this is a recording mismatch error
 		if strings.Contains(err.Error(), "cached HTTP response not found") {
@@ -209,7 +209,7 @@ func TestGoogleAICreateEmbedding(t *testing.T) {
 func TestGoogleAIWithOptions(t *testing.T) {
 
 	llm := newHTTPRRClient(t,
-		WithDefaultModel("gemini-1.5-flash"),
+		WithDefaultModel("gemini-2.5-flash"),
 		WithDefaultMaxTokens(100),
 		WithDefaultTemperature(0.1),
 	)
@@ -439,7 +439,7 @@ func TestGoogleAIMultiModalContent(t *testing.T) {
 	resp, err := llm.GenerateContent(
 		context.Background(),
 		content,
-		llms.WithModel("gemini-1.5-flash"),
+		llms.WithModel("gemini-2.5-flash"),
 	)
 
 	if err != nil {

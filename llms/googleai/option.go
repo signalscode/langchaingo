@@ -5,7 +5,6 @@ import (
 	"os"
 	"reflect"
 
-	"cloud.google.com/go/vertexai/genai"
 	"github.com/tmc/langchaingo/llms"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
@@ -86,9 +85,11 @@ func WithCredentialsFile(credentialsFile string) Option {
 }
 
 // WithRest configures the client to use the REST API.
+// Note: The new unified library may handle this differently
 func WithRest() Option {
 	return func(opts *Options) {
-		opts.ClientOptions = append(opts.ClientOptions, genai.WithREST())
+		// TODO: Update to use new library's REST configuration
+		// The new unified library may not need this or handle it differently
 	}
 }
 

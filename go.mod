@@ -33,8 +33,8 @@ require (
 	github.com/IBM/watsonx-go v1.0.0
 	github.com/cohere-ai/tokenizer v1.1.2
 	github.com/gage-technologies/mistral-go v1.1.0
-	github.com/google/generative-ai-go v0.15.1
 	github.com/pkoukk/tiktoken-go v0.1.6
+	google.golang.org/genai v1.40.0
 )
 
 // Vector stores
@@ -315,6 +315,7 @@ require (
 )
 
 require (
+	github.com/google/generative-ai-go v0.12.0
 	github.com/milvus-io/milvus/client/v2 v2.6.0
 	github.com/testcontainers/testcontainers-go/modules/mariadb v0.38.0
 )
@@ -330,7 +331,7 @@ require (
 	github.com/form3tech-oss/jwt-go v3.2.3+incompatible // indirect
 	github.com/godbus/dbus/v5 v5.0.4 // indirect
 	github.com/google/btree v1.1.3 // indirect
-	github.com/gorilla/websocket v1.5.0 // indirect
+	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway v1.16.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.18.0 // indirect

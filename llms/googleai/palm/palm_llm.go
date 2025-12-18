@@ -1,6 +1,5 @@
 // package palm implements a langchaingo provider for Google Vertex AI legacy
-// PaLM models. Use the newer Gemini models via llms/googleai/vertex if
-// possible.
+// PaLM models. Use the newer Gemini models via llms/googleai if possible.
 package palm
 
 import (

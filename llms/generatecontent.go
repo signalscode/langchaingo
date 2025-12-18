@@ -102,6 +102,10 @@ type ToolCall struct {
 	Type string `json:"type"`
 	// FunctionCall is the function call to be executed.
 	FunctionCall *FunctionCall `json:"function,omitempty"`
+	// ThoughtSignature is the encrypted representation of the model's internal thought process.
+	// This is required for Gemini 3 models when using function calling and must be preserved
+	// exactly as received when sending conversation history back to the API.
+	ThoughtSignature string `json:"thought_signature,omitempty"`
 }
 
 func (ToolCall) isPart() {}
@@ -146,6 +150,11 @@ type ContentChoice struct {
 
 	// This field is only used with the deepseek-reasoner model and represents the reasoning contents of the assistant message before the final answer.
 	ReasoningContent string
+
+	// ThoughtSignature is the encrypted representation of the model's internal thought process.
+	// This appears in the last part of responses when there are no function calls (for Gemini 3 models).
+	// For function call responses, thought signatures are stored in individual ToolCall.ThoughtSignature fields.
+	ThoughtSignature string `json:"thought_signature,omitempty"`
 }
 
 // TextParts is a helper function to create a MessageContent with a role and a

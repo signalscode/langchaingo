@@ -94,41 +94,6 @@ llm, err := googleai.New(
 )
 ```
 
-## Vertex AI
-
-### Basic configuration
-
-```go
-import (
-    "context"
-    "github.com/tmc/langchaingo/llms/googleai"
-    "github.com/tmc/langchaingo/llms/googleai/vertex"
-)
-
-llm, err := vertex.New(
-    context.Background(),
-    googleai.WithCloudProject("your-project-id"),
-    googleai.WithCloudLocation("us-central1"),
-)
-```
-
-### With service account
-
-```go
-import (
-    "context"
-    "github.com/tmc/langchaingo/llms/googleai"
-    "github.com/tmc/langchaingo/llms/googleai/vertex"
-)
-
-llm, err := vertex.New(
-    context.Background(),
-    googleai.WithCloudProject("your-project-id"),
-    googleai.WithCloudLocation("us-central1"),
-    googleai.WithCredentialsFile("path/to/service-account.json"),
-)
-```
-
 ## Local Models (Ollama)
 
 ### Basic configuration
@@ -277,6 +242,5 @@ if err != nil {
 | OpenAI | High quality, function calling | General purpose, agents |
 | Anthropic | Safety, long context | Research, content analysis |
 | Google AI | Free tier, fast | Experimentation, mobile apps |
-| Vertex AI | Enterprise features | Production, compliance |
 | Ollama | Privacy, offline | Local development, sensitive data |
 | Hugging Face | Open models, variety | Research, experimentation |

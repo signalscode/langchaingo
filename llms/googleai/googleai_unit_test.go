@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	genai "google.golang.org/genai"
 	"github.com/stretchr/testify/assert"
 	"github.com/tmc/langchaingo/llms"
 )
@@ -287,22 +288,22 @@ func TestConvertToolSchemaType(t *testing.T) {
 
 	tests := []struct {
 		input    string
-		expected string // We'll compare the string representation
+		expected genai.Type
 	}{
-		{"object", "TypeObject"},
-		{"string", "TypeString"},
-		{"number", "TypeNumber"},
-		{"integer", "TypeInteger"},
-		{"boolean", "TypeBoolean"},
-		{"array", "TypeArray"},
-		{"unknown", "TypeUnspecified"},
-		{"", "TypeUnspecified"},
+		{"object", genai.TypeObject},
+		{"string", genai.TypeString},
+		{"number", genai.TypeNumber},
+		{"integer", genai.TypeInteger},
+		{"boolean", genai.TypeBoolean},
+		{"array", genai.TypeArray},
+		{"unknown", genai.TypeUnspecified},
+		{"", genai.TypeUnspecified},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			result := convertToolSchemaType(tt.input)
-			assert.Equal(t, tt.expected, result.String())
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
