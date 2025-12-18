@@ -169,16 +169,27 @@ func (g *GoogleAI) buildGenerateContentConfig(opts *llms.CallOptions) *genai.Gen
 		}
 	}
 
-	// Configure thinking settings for Gemini 3+ models
+	// Configure thinking settings for Gemini 3+ models only
+	// Note: Gemini 2.0 models support reasoning but may not support thinking_level parameter
 	thinkingConfig := llms.GetThinkingConfig(opts)
-	if thinkingConfig != nil {
+	if thinkingConfig != nil && isGemini3OrLater(opts.Model) {
 		config.ThinkingConfig = convertThinkingConfig(thinkingConfig)
-	} else if len(opts.Tools) > 0 && isGemini3OrLater(opts.Model) {
+	}
+	if len(opts.Tools) > 0 && isGemini3OrLater(opts.Model) {
 		// For Gemini 3+ models with tools, enable minimal thinking by default
 		// since thought signatures are required for function calling.
 		// See: https://ai.google.dev/gemini-api/docs/thought-signatures
-		config.ThinkingConfig = &genai.ThinkingConfig{
-			ThinkingLevel: genai.ThinkingLevelMinimal,
+		if config.ThinkingConfig == nil {
+			config.ThinkingConfig = &genai.ThinkingConfig{
+				ThinkingLevel: genai.ThinkingLevelMinimal,
+			}
+		} else if config.ThinkingConfig.ThinkingLevel == genai.ThinkingLevelUnspecified || config.ThinkingConfig.ThinkingLevel == "" {
+			config.ThinkingConfig.ThinkingLevel = genai.ThinkingLevelMinimal
+		}
+		config.ThinkingConfig.IncludeThoughts = true
+		if config.ThinkingConfig.ThinkingBudget == nil {
+			budget := int32(opts.MaxTokens)
+			config.ThinkingConfig.ThinkingBudget = &budget
 		}
 	}
 

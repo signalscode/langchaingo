@@ -52,6 +52,10 @@ type Options struct {
 
 	// HTTPClient is an optional custom HTTP client to use.
 	HTTPClient *http.Client
+
+	IncludeThoughts bool
+	ThinkingLevel   genai.ThinkingLevel
+	ThinkingBudget  int32
 }
 
 // DefaultOptions returns the default options for GoogleAI.
@@ -66,6 +70,9 @@ func DefaultOptions() Options {
 		DefaultTopK:           3,
 		DefaultTopP:           0.95,
 		HarmThreshold:         HarmBlockOnlyHigh,
+		IncludeThoughts:       false,
+		ThinkingLevel:         genai.ThinkingLevelMinimal,
+		ThinkingBudget:        0,
 	}
 }
 
@@ -111,6 +118,25 @@ func WithCloudProject(p string) Option {
 func WithCloudLocation(l string) Option {
 	return func(opts *Options) {
 		opts.CloudLocation = l
+	}
+}
+
+func WithIncludeThoughts(includeThoughts bool) Option {
+	return func(opts *Options) {
+		opts.IncludeThoughts = includeThoughts
+	}
+}
+
+func WithThinkingLevel(thinkingLevel genai.ThinkingLevel) Option {
+	return func(opts *Options) {
+		opts.ThinkingLevel = thinkingLevel
+	}
+}
+
+func WithThinkingBudget(thinkingBudget int32) Option {
+
+	return func(opts *Options) {
+		opts.ThinkingBudget = thinkingBudget
 	}
 }
 

@@ -259,6 +259,22 @@ func TestUnmarshalJSONMessageContent(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name:  "tool call with thought signature",
+			input: `{"role":"assistant","parts":[{"type":"tool_call","tool_call":{"id":"t42","type":"function","function":{"name":"get_current_weather","arguments":"{ \"location\": \"New York\" }"},"thought_signature":"dGVzdC1zaWduYXR1cmU="}}]}`,
+			want: MessageContent{
+				Role: "assistant",
+				Parts: []ContentPart{
+					ToolCall{
+						ID:               "t42",
+						Type:             "function",
+						FunctionCall:     &FunctionCall{Name: "get_current_weather", Arguments: `{ "location": "New York" }`},
+						ThoughtSignature: []byte("test-signature"),
+					},
+				},
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -321,6 +337,38 @@ func TestMarshalJSONMessageContent(t *testing.T) {
 				},
 			},
 			want:    `{"role":"user","parts":[{}]}`,
+			wantErr: false,
+		},
+		{
+			name: "tool call with thought signature",
+			input: MessageContent{
+				Role: "assistant",
+				Parts: []ContentPart{
+					ToolCall{
+						ID:               "t42",
+						Type:             "function",
+						FunctionCall:     &FunctionCall{Name: "get_current_weather", Arguments: `{ "location": "New York" }`},
+						ThoughtSignature: []byte("test-signature"),
+					},
+				},
+			},
+			want:    `{"role":"assistant","parts":[{"type":"tool_call","tool_call":{"function":{"name":"get_current_weather","arguments":"{ \"location\": \"New York\" }"},"id":"t42","thought_signature":"dGVzdC1zaWduYXR1cmU=","type":"function"}}]}`,
+			wantErr: false,
+		},
+		{
+			name: "tool call without thought signature",
+			input: MessageContent{
+				Role: "assistant",
+				Parts: []ContentPart{
+					ToolCall{
+						ID:               "t42",
+						Type:             "function",
+						FunctionCall:     &FunctionCall{Name: "get_current_weather", Arguments: `{ "location": "New York" }`},
+						ThoughtSignature: nil,
+					},
+				},
+			},
+			want:    `{"role":"assistant","parts":[{"type":"tool_call","tool_call":{"function":{"name":"get_current_weather","arguments":"{ \"location\": \"New York\" }"},"id":"t42","type":"function"}}]}`,
 			wantErr: false,
 		},
 	}
@@ -400,6 +448,21 @@ role: user
 					ToolCall{Type: "function", ID: "t01", FunctionCall: &FunctionCall{Name: "get_current_weather", Arguments: `{ "location": "New York" }`}},
 				},
 			},
+		},
+		{
+			name: "tool use with thought signature",
+			in: MessageContent{
+				Role: "assistant",
+				Parts: []ContentPart{
+					ToolCall{
+						Type:             "function",
+						ID:               "t01",
+						FunctionCall:     &FunctionCall{Name: "get_current_weather", Arguments: `{ "location": "New York" }`},
+						ThoughtSignature: []byte("test-signature"),
+					},
+				},
+			},
+			assertedJSON: `{"role":"assistant","parts":[{"type":"tool_call","tool_call":{"function":{"name":"get_current_weather","arguments":"{ \"location\": \"New York\" }"},"id":"t01","thought_signature":"dGVzdC1zaWduYXR1cmU=","type":"function"}}]}`,
 		},
 		{
 			name: "multiple tool uses",
