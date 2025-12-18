@@ -3,6 +3,7 @@ package googleai
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -338,7 +339,7 @@ func convertCandidates(candidates []*genai.Candidate, usage *genai.GenerateConte
 				if part.Thought {
 					thoughtContent := llms.ThoughtContent{
 						Text:      part.Text,
-						Signature: part.ThoughtSignature,
+						Signature: string(part.ThoughtSignature),
 					}
 					thoughtParts = append(thoughtParts, thoughtContent)
 					continue
@@ -365,7 +366,7 @@ func convertCandidates(candidates []*genai.Candidate, usage *genai.GenerateConte
 						},
 						// Capture thought signature for Gemini 3+ models.
 						// For parallel function calls, only the first call will have a signature.
-						ThoughtSignature: part.ThoughtSignature,
+						ThoughtSignature: base64.StdEncoding.EncodeToString(part.ThoughtSignature),
 					}
 					toolCalls = append(toolCalls, toolCall)
 				}
@@ -450,7 +451,11 @@ func convertParts(parts []llms.ContentPart) ([]*genai.Part, error) {
 			out = genai.NewPartFromFunctionCall(fc.Name, argsMap)
 			// Include thought signature for Gemini 3+ models
 			if p.ThoughtSignature != "" {
-				out.ThoughtSignature = p.ThoughtSignature
+				base64Decoded, err := base64.StdEncoding.DecodeString(p.ThoughtSignature)
+				if err != nil {
+					return nil, err
+				}
+				out.ThoughtSignature = base64Decoded
 			}
 		case llms.ToolCallResponse:
 			out = genai.NewPartFromFunctionResponse(p.Name, map[string]any{
@@ -461,7 +466,7 @@ func convertParts(parts []llms.ContentPart) ([]*genai.Part, error) {
 			out = &genai.Part{
 				Text:             p.Text,
 				Thought:          true,
-				ThoughtSignature: p.Signature,
+				ThoughtSignature: []byte(p.Signature),
 			}
 		}
 
