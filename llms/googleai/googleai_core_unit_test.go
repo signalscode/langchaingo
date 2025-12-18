@@ -94,7 +94,7 @@ func TestConvertParts(t *testing.T) { //nolint:funlen // comprehensive test
 			parts: []llms.ContentPart{
 				llms.ThoughtContent{
 					Text:      "Let me think about this...",
-					Signature: []byte("signature-bytes"),
+					Signature: "signature-bytes",
 				},
 			},
 			wantErr:   false,
@@ -328,7 +328,7 @@ func TestConvertCandidates(t *testing.T) { //nolint:funlen // comprehensive test
 							{
 								Text:             "Let me think...",
 								Thought:          true,
-								ThoughtSignature: []byte("signature"),
+								ThoughtSignature: "signature",
 							},
 							{Text: "The answer is 42"},
 						},
@@ -401,7 +401,7 @@ func TestThoughtContentHandling(t *testing.T) {
 						{
 							Text:             "Let me analyze this step by step...",
 							Thought:          true,
-							ThoughtSignature: []byte("thought-sig-1"),
+							ThoughtSignature: "thought-sig-1",
 						},
 						{Text: "The final answer is 42"},
 					},
@@ -421,7 +421,7 @@ func TestThoughtContentHandling(t *testing.T) {
 		// Thought parts should be captured
 		assert.Len(t, choice.ThoughtParts, 1)
 		assert.Equal(t, "Let me analyze this step by step...", choice.ThoughtParts[0].Text)
-		assert.Equal(t, []byte("thought-sig-1"), choice.ThoughtParts[0].Signature)
+		assert.Equal(t, "thought-sig-1", choice.ThoughtParts[0].Signature)
 
 		// Reasoning content should be populated
 		assert.Equal(t, "Let me analyze this step by step...", choice.ReasoningContent)
@@ -431,7 +431,7 @@ func TestThoughtContentHandling(t *testing.T) {
 		parts := []llms.ContentPart{
 			llms.ThoughtContent{
 				Text:      "Previous thought",
-				Signature: []byte("prev-sig"),
+				Signature: "prev-sig",
 			},
 			llms.TextContent{Text: "Continue from here"},
 		}
@@ -443,7 +443,7 @@ func TestThoughtContentHandling(t *testing.T) {
 		// First part should be a thought
 		assert.True(t, result[0].Thought)
 		assert.Equal(t, "Previous thought", result[0].Text)
-		assert.Equal(t, []byte("prev-sig"), result[0].ThoughtSignature)
+		assert.Equal(t, "prev-sig", result[0].ThoughtSignature)
 
 		// Second part should be regular text
 		assert.False(t, result[1].Thought)
