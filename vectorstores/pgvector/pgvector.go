@@ -219,7 +219,7 @@ func (s Store) createEmbeddingTableIfNotExists(ctx context.Context, tx pgx.Tx) e
 	// See this for more details on HNWS indexes: https://github.com/pgvector/pgvector#hnsw
 	if s.hnswIndex != nil {
 		sql = fmt.Sprintf(
-			`CREATE INDEX IF NOT EXISTS %s_embedding_hnsw ON %s USING hnsw (embedding %s)`,
+			`CREATE INDEX CONCURRENTLY IF NOT EXISTS %s_embedding_hnsw ON %s USING hnsw (embedding %s)`,
 			s.embeddingTableName, s.embeddingTableName, s.hnswIndex.distanceFunction,
 		)
 		if s.hnswIndex.m > 0 && s.hnswIndex.efConstruction > 0 {
