@@ -62,7 +62,7 @@ func main() {
 }
 ```
 
-See the vector store usage example below.
+See the full [Vector Store example and tutorial](https://github.com/tmc/langchaingo/tree/main/examples/google-alloydb-vectorstore-example).
 
 ## Engine Creation WithPool
 
@@ -115,7 +115,7 @@ import (
 
   "github.com/tmc/langchaingo/embeddings"
   "github.com/tmc/langchaingo/internal/alloydbutil"
-  "github.com/tmc/langchaingo/llms/googleai"
+  "github.com/tmc/langchaingo/llms/googleai/vertex"
   "github.com/tmc/langchaingo/vectorstores/alloydb"
 )
 
@@ -153,8 +153,8 @@ func main() {
         log.Fatal(err)
     }
 
-    // Initialize Google AI client for embeddings
-    llm, err := googleai.New(ctx, googleai.WithDefaultEmbeddingModel("text-embedding-005"))
+    // Initialize VertexAI LLM
+    llm, err := vertex.New(ctx, googleai.WithCloudProject(projectID), googleai.WithCloudLocation(cloudLocation), googleai.WithDefaultModel("text-embedding-005"))
     if err != nil {
         log.Fatal(err)
     }

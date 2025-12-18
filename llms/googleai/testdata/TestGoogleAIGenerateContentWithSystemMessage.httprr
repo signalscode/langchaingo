@@ -1,14 +1,14 @@
 httprr trace v1
 897 2562
-POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?%24alt=json%3Benum-encoding%3Dint HTTP/1.1
+POST https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:streamGenerateContent?%24alt=json%3Benum-encoding%3Dint HTTP/1.1
 Host: generativelanguage.googleapis.com
 User-Agent: langchaingo-httprr
 Content-Length: 472
 Content-Type: application/json
 x-goog-api-client: gl-go/X.XX.X gccl/vX.XX.X genai-go/X.XX.X gapic/X.X.X gax/X.XX.X rest/UNKNOWN
-x-goog-request-params: model=models%2Fgemini-2.5-flash
+x-goog-request-params: model=models%2Fgemini-1.5-flash
 
-{"model":"models/gemini-2.5-flash","systemInstruction":{"parts":[{"text":"You are a helpful assistant that always responds in haiku format."}],"role":"system"},"contents":[{"parts":[{"text":"Tell me about the ocean"}],"role":"user"}],"safetySettings":[{"category":10,"threshold":3},{"category":7,"threshold":3},{"category":8,"threshold":3},{"category":9,"threshold":3}],"generationConfig":{"candidateCount":1,"maxOutputTokens":2048,"temperature":0.5,"topP":0.95,"topK":3}}HTTP/2.0 200 OK
+{"model":"models/gemini-1.5-flash","systemInstruction":{"parts":[{"text":"You are a helpful assistant that always responds in haiku format."}],"role":"system"},"contents":[{"parts":[{"text":"Tell me about the ocean"}],"role":"user"}],"safetySettings":[{"category":10,"threshold":3},{"category":7,"threshold":3},{"category":8,"threshold":3},{"category":9,"threshold":3}],"generationConfig":{"candidateCount":1,"maxOutputTokens":2048,"temperature":0.5,"topP":0.95,"topK":3}}HTTP/2.0 200 OK
 Content-Length: 2183
 Alt-Svc: h3=":443"; ma=2592000,h3-29=":443"; ma=2592000
 Content-Type: application/json; charset=UTF-8
@@ -45,7 +45,7 @@ X-Xss-Protection: 0
       }
     ]
   },
-  "modelVersion": "gemini-2.5-flash",
+  "modelVersion": "gemini-1.5-flash",
   "responseId": "Th-jaIKZKbCMqsMP3O2RkAo"
 }
 ,
@@ -90,7 +90,7 @@ X-Xss-Protection: 0
       }
     ]
   },
-  "modelVersion": "gemini-2.5-flash",
+  "modelVersion": "gemini-1.5-flash",
   "responseId": "Th-jaIKZKbCMqsMP3O2RkAo"
 }
 ,
@@ -143,7 +143,7 @@ X-Xss-Protection: 0
       }
     ]
   },
-  "modelVersion": "gemini-2.5-flash",
+  "modelVersion": "gemini-1.5-flash",
   "responseId": "Th-jaIKZKbCMqsMP3O2RkAo"
 }
 ]

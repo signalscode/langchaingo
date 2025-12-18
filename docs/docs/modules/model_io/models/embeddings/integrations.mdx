@@ -27,4 +27,13 @@ llm, err := googleai.New(ctx)
 embedder, err := llm.CreateEmbedding(ctx, texts)
 ```
 
+## Vertex AI Embeddings
+
+```go
+import "github.com/tmc/langchaingo/llms/googleai/vertex"
+
+llm, err := vertex.New(ctx)
+embedder, err := llm.CreateEmbedding(ctx, texts)
+```
+
 For more details on using embeddings, see the [Embeddings documentation](./index.mdx).

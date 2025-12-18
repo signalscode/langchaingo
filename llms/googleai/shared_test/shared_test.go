@@ -25,6 +25,7 @@ import (
 	"github.com/tmc/langchaingo/internal/httprr"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/googleai"
+	"github.com/tmc/langchaingo/llms/googleai/vertex"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -69,6 +70,37 @@ func newGoogleAIClient(t *testing.T, opts ...googleai.Option) *googleai.GoogleAI
 	)
 
 	llm, err := googleai.New(context.Background(), opts...)
+	require.NoError(t, err)
+	return llm
+}
+
+func newVertexClient(t *testing.T, opts ...googleai.Option) *vertex.Vertex {
+	t.Helper()
+
+	// Always check for recordings first - prefer recordings over environment variables
+	if !hasExistingRecording(t) {
+		t.Skip("No httprr recording available. Hint: Re-run tests with -httprecord=. to record new HTTP interactions")
+	}
+
+	// Temporarily unset Google API key environment variable to prevent bypass
+	oldKey := os.Getenv("GOOGLE_API_KEY")
+	os.Unsetenv("GOOGLE_API_KEY")
+	t.Cleanup(func() {
+		if oldKey != "" {
+			os.Setenv("GOOGLE_API_KEY", oldKey)
+		}
+	})
+
+	rr := httprr.OpenForTest(t, httputil.DefaultTransport)
+
+	// Configure client with httprr and test credentials
+	opts = append(opts,
+		googleai.WithHTTPClient(rr.Client()),
+		googleai.WithCloudProject("test-project"),
+		googleai.WithCloudLocation("us-central1"),
+	)
+
+	llm, err := vertex.New(context.Background(), opts...)
 	require.NoError(t, err)
 	return llm
 }
@@ -124,6 +156,30 @@ func TestGoogleAIShared(t *testing.T) {
 			c.testFunc(t, llm)
 		})
 	}
+}
+
+func TestVertexShared(t *testing.T) {
+	for _, c := range testConfigs {
+		t.Run(fmt.Sprintf("%s-vertex", funcName(c.testFunc)), func(t *testing.T) {
+			llm := newVertexClient(t, c.opts...)
+			c.testFunc(t, llm)
+		})
+	}
+}
+
+// TestVertex_WithCustomEmbeddingModel tests custom embedding models passed as an option.
+// TODO: refactor testConfig to have a opts provider func so it this can be moved to a test config.
+func TestVertex_WithCustomEmbeddingModel(t *testing.T) {
+	t.Helper()
+	t.Parallel()
+	const modelName = "custom-embedding-model"
+	opts := getCustomEmbeddingModelTestOptionsWithGRPC(t, modelName)
+
+	llm, err := vertex.New(context.Background(), opts...)
+	require.NoError(t, err)
+
+	_, err = llm.CreateEmbedding(context.Background(), []string{"test"})
+	require.NoError(t, err)
 }
 
 func testMultiContentText(t *testing.T, llm llms.Model) {
@@ -199,7 +255,7 @@ func testMultiContentTextChatSequence(t *testing.T, llm llms.Model) {
 		},
 	}
 
-	rsp, err := llm.GenerateContent(context.Background(), content, llms.WithModel("gemini-2.5-flash"))
+	rsp, err := llm.GenerateContent(context.Background(), content, llms.WithModel("gemini-1.5-flash"))
 	require.NoError(t, err)
 
 	assert.NotEmpty(t, rsp.Choices)
@@ -222,7 +278,7 @@ func testMultiContentWithSystemMessage(t *testing.T, llm llms.Model) {
 		},
 	}
 
-	rsp, err := llm.GenerateContent(context.Background(), content, llms.WithModel("gemini-2.5-flash"))
+	rsp, err := llm.GenerateContent(context.Background(), content, llms.WithModel("gemini-1.5-flash"))
 	require.NoError(t, err)
 
 	assert.NotEmpty(t, rsp.Choices)

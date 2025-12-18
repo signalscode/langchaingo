@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	genai "google.golang.org/genai"
+	"github.com/google/generative-ai-go/genai"
 	"github.com/stretchr/testify/assert"
 	"github.com/tmc/langchaingo/llms"
 )
@@ -104,22 +104,15 @@ func TestConvertParts(t *testing.T) { //nolint:funlen // comprehensive test
 			assert.Len(t, result, len(tt.wantTypes))
 
 			for i, expectedType := range tt.wantTypes {
-				assert.NotNil(t, result[i], "Part %d should not be nil", i)
-				part := result[i]
 				switch expectedType {
 				case "genai.Text":
-					assert.NotEmpty(t, part.Text, "Part %d should have Text field", i)
-					assert.Nil(t, part.FunctionCall, "Part %d should not have FunctionCall", i)
-					assert.Nil(t, part.FunctionResponse, "Part %d should not have FunctionResponse", i)
+					assert.IsType(t, genai.Text(""), result[i])
 				case "genai.Blob":
-					assert.NotNil(t, part.InlineData, "Part %d should have InlineData field", i)
-					assert.Nil(t, part.FunctionCall, "Part %d should not have FunctionCall", i)
+					assert.IsType(t, genai.Blob{}, result[i])
 				case "genai.FunctionCall":
-					assert.NotNil(t, part.FunctionCall, "Part %d should have FunctionCall field", i)
-					assert.Empty(t, part.Text, "Part %d should not have Text", i)
+					assert.IsType(t, genai.FunctionCall{}, result[i])
 				case "genai.FunctionResponse":
-					assert.NotNil(t, part.FunctionResponse, "Part %d should have FunctionResponse field", i)
-					assert.Empty(t, part.Text, "Part %d should not have Text", i)
+					assert.IsType(t, genai.FunctionResponse{}, result[i])
 				}
 			}
 		})
@@ -245,7 +238,7 @@ func TestConvertCandidates(t *testing.T) { //nolint:funlen // comprehensive test
 	tests := []struct {
 		name        string
 		candidates  []*genai.Candidate
-		usage       *genai.GenerateContentResponseUsageMetadata
+		usage       *genai.UsageMetadata
 		wantErr     bool
 		wantChoices int
 	}{
@@ -260,8 +253,8 @@ func TestConvertCandidates(t *testing.T) { //nolint:funlen // comprehensive test
 			candidates: []*genai.Candidate{
 				{
 					Content: &genai.Content{
-						Parts: []*genai.Part{
-							{Text: "Hello world"},
+						Parts: []genai.Part{
+							genai.Text("Hello world"),
 						},
 					},
 					FinishReason: genai.FinishReasonStop,
@@ -275,12 +268,10 @@ func TestConvertCandidates(t *testing.T) { //nolint:funlen // comprehensive test
 			candidates: []*genai.Candidate{
 				{
 					Content: &genai.Content{
-						Parts: []*genai.Part{
-							{
-								FunctionCall: &genai.FunctionCall{
-									Name: "get_weather",
-									Args: map[string]any{"location": "Paris"},
-								},
+						Parts: []genai.Part{
+							genai.FunctionCall{
+								Name: "get_weather",
+								Args: map[string]any{"location": "Paris"},
 							},
 						},
 					},
@@ -295,17 +286,17 @@ func TestConvertCandidates(t *testing.T) { //nolint:funlen // comprehensive test
 			candidates: []*genai.Candidate{
 				{
 					Content: &genai.Content{
-						Parts: []*genai.Part{
-							{Text: "Response with usage"},
+						Parts: []genai.Part{
+							genai.Text("Response with usage"),
 						},
 					},
 					FinishReason: genai.FinishReasonStop,
 				},
 			},
-			usage: &genai.GenerateContentResponseUsageMetadata{
-				PromptTokenCount: 10,
-				// Note: Field names may differ in actual API
-				// TotalTokenCount: 15,
+			usage: &genai.UsageMetadata{
+				PromptTokenCount:     10,
+				CandidatesTokenCount: 5,
+				TotalTokenCount:      15,
 			},
 			wantErr:     false,
 			wantChoices: 1,
@@ -315,13 +306,13 @@ func TestConvertCandidates(t *testing.T) { //nolint:funlen // comprehensive test
 			candidates: []*genai.Candidate{
 				{
 					Content: &genai.Content{
-						Parts: []*genai.Part{{Text: "First response"}},
+						Parts: []genai.Part{genai.Text("First response")},
 					},
 					FinishReason: genai.FinishReasonStop,
 				},
 				{
 					Content: &genai.Content{
-						Parts: []*genai.Part{{Text: "Second response"}},
+						Parts: []genai.Part{genai.Text("Second response")},
 					},
 					FinishReason: genai.FinishReasonStop,
 				},
@@ -334,8 +325,10 @@ func TestConvertCandidates(t *testing.T) { //nolint:funlen // comprehensive test
 			candidates: []*genai.Candidate{
 				{
 					Content: &genai.Content{
-						Parts: []*genai.Part{
-							{Text: "Known type for now"},
+						Parts: []genai.Part{
+							// This would be an unknown part type in practice
+							// but we can't easily create one for testing
+							genai.Text("Known type for now"),
 						},
 					},
 					FinishReason: genai.FinishReasonStop,
@@ -363,8 +356,7 @@ func TestConvertCandidates(t *testing.T) { //nolint:funlen // comprehensive test
 			if tt.usage != nil && len(result.Choices) > 0 {
 				metadata := result.Choices[0].GenerationInfo
 				assert.Equal(t, int32(10), metadata["input_tokens"])
-				// Note: Output tokens field name may differ in actual API
-				// assert.Equal(t, int32(5), metadata["output_tokens"])
+				assert.Equal(t, int32(5), metadata["output_tokens"])
 				assert.Equal(t, int32(15), metadata["total_tokens"])
 			}
 
@@ -493,12 +485,11 @@ func TestFunctionCallConversion(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Len(t, result, 1)
 
-		// Parts are now *genai.Part structs, not interfaces
-		assert.NotNil(t, result[0])
-		assert.NotNil(t, result[0].FunctionCall)
-		assert.Equal(t, "get_weather", result[0].FunctionCall.Name)
-		assert.Equal(t, "Paris", result[0].FunctionCall.Args["location"])
-		assert.Equal(t, "celsius", result[0].FunctionCall.Args["unit"])
+		funcCall, ok := result[0].(genai.FunctionCall)
+		assert.True(t, ok)
+		assert.Equal(t, "get_weather", funcCall.Name)
+		assert.Equal(t, "Paris", funcCall.Args["location"])
+		assert.Equal(t, "celsius", funcCall.Args["unit"])
 	})
 
 	t.Run("function response", func(t *testing.T) {
@@ -511,11 +502,10 @@ func TestFunctionCallConversion(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Len(t, result, 1)
 
-		// Parts are now *genai.Part structs, not interfaces
-		assert.NotNil(t, result[0])
-		assert.NotNil(t, result[0].FunctionResponse)
-		assert.Equal(t, "get_weather", result[0].FunctionResponse.Name)
-		assert.Equal(t, "It's 20°C and sunny", result[0].FunctionResponse.Response["response"])
+		funcResp, ok := result[0].(genai.FunctionResponse)
+		assert.True(t, ok)
+		assert.Equal(t, "get_weather", funcResp.Name)
+		assert.Equal(t, "It's 20°C and sunny", funcResp.Response["response"])
 	})
 }
 

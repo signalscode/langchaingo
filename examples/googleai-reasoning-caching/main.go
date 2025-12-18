@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/generative-ai-go/genai"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/googleai"
 )
@@ -94,12 +95,8 @@ func demonstrateCaching(ctx context.Context, apiKey string) {
 	fmt.Println()
 
 	helper := setupCachingHelper(ctx, apiKey)
-	cachedName := createCachedContent(ctx, helper)
-	if cachedName == "" {
-		fmt.Println("Caching demo skipped (cached content creation is not available in this build).")
-		return
-	}
-	runCachedRequests(ctx, apiKey, cachedName)
+	cached := createCachedContent(ctx, helper)
+	runCachedRequests(ctx, apiKey, cached.Name)
 }
 
 func setupCachingHelper(ctx context.Context, apiKey string) *googleai.CachingHelper {
@@ -110,7 +107,7 @@ func setupCachingHelper(ctx context.Context, apiKey string) *googleai.CachingHel
 	return helper
 }
 
-func createCachedContent(ctx context.Context, helper *googleai.CachingHelper) string {
+func createCachedContent(ctx context.Context, helper *googleai.CachingHelper) *genai.CachedContent {
 	// Create a large context to cache
 	largeContext := `You are an expert Go programming assistant.
 	You have deep knowledge of Go best practices, performance optimization, and idiomatic code patterns.
@@ -135,14 +132,17 @@ func createCachedContent(ctx context.Context, helper *googleai.CachingHelper) st
 	)
 	if err != nil {
 		log.Printf("Failed to create cached content: %v", err)
-		return ""
+		return nil
 	}
+	defer func() {
+		if err := helper.DeleteCachedContent(ctx, cached.Name); err != nil {
+			log.Printf("Failed to delete cached content: %v", err)
+		}
+	}()
 
-	// The caching API is currently surfaced as an untyped value (and may not be
-	// implemented for all backends). If your build returns a concrete cached
-	// content type, extract its name here and pass it to WithCachedContent.
-	_ = cached
-	return ""
+	fmt.Printf("Cached content created: %s\n", cached.Name)
+	fmt.Printf("Token count: %d\n", cached.UsageMetadata.TotalTokenCount)
+	return cached
 }
 
 func runCachedRequests(ctx context.Context, apiKey, cachedContentName string) {

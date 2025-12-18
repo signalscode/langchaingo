@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
-	// "time" // TODO: Re-enable when caching is implemented
+	"time"
 
 	"github.com/tmc/langchaingo/llms"
 )
@@ -38,7 +38,7 @@ func TestGoogleAI_SupportsReasoning(t *testing.T) {
 		},
 		{
 			name:     "Gemini 1.5 Flash does not support reasoning",
-			model:    "gemini-2.5-flash",
+			model:    "gemini-1.5-flash",
 			expected: false,
 		},
 		{
@@ -143,40 +143,35 @@ func TestGoogleAI_CachingSupport(t *testing.T) {
 	ctx := context.Background()
 
 	// Create caching helper
-	// TODO: Re-enable when caching API is implemented with new library
-	// helper, err := NewCachingHelper(ctx, WithAPIKey(apiKey))
-	// if err != nil {
-	//     t.Fatalf("Failed to create caching helper: %v", err)
-	// }
+	helper, err := NewCachingHelper(ctx, WithAPIKey(apiKey))
+	if err != nil {
+		t.Fatalf("Failed to create caching helper: %v", err)
+	}
 
 	// Create cached content with a large system prompt
-	// longContext := `You are an expert code reviewer with deep knowledge of Go best practices.
-	// Always consider performance, security, and maintainability in your reviews.
-	// ` + strings.Repeat("This is padding text to ensure we have enough tokens for caching. ", 100)
+	longContext := `You are an expert code reviewer with deep knowledge of Go best practices.
+	Always consider performance, security, and maintainability in your reviews.
+	` + strings.Repeat("This is padding text to ensure we have enough tokens for caching. ", 100)
 
-	// TODO: Re-enable when caching API is implemented with new library
-	// Caching is not yet implemented with new API
-	// cached, err := helper.CreateCachedContent(ctx, "gemini-2.0-flash",
-	//     []llms.MessageContent{
-	//         {
-	//             Role: llms.ChatMessageTypeSystem,
-	//             Parts: []llms.ContentPart{
-	//                 llms.TextPart(longContext),
-	//             },
-	//         },
-	//     },
-	//     5*time.Minute,
-	// )
-	// if err != nil {
-	//     t.Fatalf("Failed to create cached content: %v", err)
-	// }
-	// defer func() {
-	//     if cachedName, ok := cached.(string); ok {
-	//         if err := helper.DeleteCachedContent(ctx, cachedName); err != nil {
-	//             t.Logf("Failed to delete cached content: %v", err)
-	//         }
-	//     }
-	// }()
+	cached, err := helper.CreateCachedContent(ctx, "gemini-2.0-flash",
+		[]llms.MessageContent{
+			{
+				Role: llms.ChatMessageTypeSystem,
+				Parts: []llms.ContentPart{
+					llms.TextPart(longContext),
+				},
+			},
+		},
+		5*time.Minute,
+	)
+	if err != nil {
+		t.Fatalf("Failed to create cached content: %v", err)
+	}
+	defer func() {
+		if err := helper.DeleteCachedContent(ctx, cached.Name); err != nil {
+			t.Logf("Failed to delete cached content: %v", err)
+		}
+	}()
 
 	// Use the cached content in a request
 	client, err := New(ctx, WithAPIKey(apiKey))
@@ -194,14 +189,8 @@ func TestGoogleAI_CachingSupport(t *testing.T) {
 		},
 	}
 
-	// TODO: Update when caching API is implemented
-	// Caching is not yet implemented with new API
-	// cachedName := ""
-	// if name, ok := cached.(string); ok {
-	//     cachedName = name
-	// }
 	resp, err := client.GenerateContent(ctx, messages,
-		// WithCachedContent(cachedName), // TODO: Re-enable when caching is implemented
+		WithCachedContent(cached.Name),
 		llms.WithMaxTokens(200),
 	)
 	if err != nil {

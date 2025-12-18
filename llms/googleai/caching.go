@@ -3,10 +3,9 @@ package googleai
 
 import (
 	"context"
-	"fmt"
 	"time"
 
-	genai "google.golang.org/genai"
+	"github.com/google/generative-ai-go/genai"
 	"github.com/tmc/langchaingo/llms"
 )
 
@@ -53,27 +52,68 @@ func (ch *CachingHelper) CreateCachedContent(
 	modelName string,
 	messages []llms.MessageContent,
 	ttl time.Duration,
-) (interface{}, error) {
-	// TODO: Update to use new library's caching API
-	// The new library likely has a different API structure for caching
-	// This needs to be implemented based on the actual API
-	return nil, fmt.Errorf("caching not yet implemented with new API")
+) (*genai.CachedContent, error) {
+	// Convert langchain messages to genai content
+	contents := make([]*genai.Content, 0, len(messages))
+	var systemInstruction *genai.Content
+
+	for _, msg := range messages {
+		parts := make([]genai.Part, 0, len(msg.Parts))
+		for _, part := range msg.Parts {
+			switch p := part.(type) {
+			case llms.TextContent:
+				parts = append(parts, genai.Text(p.Text))
+			case llms.CachedContent:
+				// Extract the underlying content if it's wrapped with cache control
+				// (though Google AI doesn't use inline cache control like Anthropic)
+				if textPart, ok := p.ContentPart.(llms.TextContent); ok {
+					parts = append(parts, genai.Text(textPart.Text))
+				}
+			}
+		}
+
+		content := &genai.Content{
+			Parts: parts,
+		}
+
+		// Set role
+		switch msg.Role {
+		case llms.ChatMessageTypeSystem:
+			content.Role = "system"
+			systemInstruction = content
+		case llms.ChatMessageTypeHuman:
+			content.Role = "user"
+			contents = append(contents, content)
+		case llms.ChatMessageTypeAI:
+			content.Role = "model"
+			contents = append(contents, content)
+		}
+	}
+
+	// Create the cached content
+	cc := &genai.CachedContent{
+		Model:             modelName,
+		Contents:          contents,
+		SystemInstruction: systemInstruction,
+		Expiration: genai.ExpireTimeOrTTL{
+			TTL: ttl,
+		},
+	}
+
+	return ch.client.CreateCachedContent(ctx, cc)
 }
 
 // GetCachedContent retrieves existing cached content by name.
-func (ch *CachingHelper) GetCachedContent(ctx context.Context, name string) (interface{}, error) {
-	// TODO: Update to use new library's caching API
-	return nil, fmt.Errorf("caching not yet implemented with new API")
+func (ch *CachingHelper) GetCachedContent(ctx context.Context, name string) (*genai.CachedContent, error) {
+	return ch.client.GetCachedContent(ctx, name)
 }
 
 // DeleteCachedContent removes cached content.
 func (ch *CachingHelper) DeleteCachedContent(ctx context.Context, name string) error {
-	// TODO: Update to use new library's caching API
-	return fmt.Errorf("caching not yet implemented with new API")
+	return ch.client.DeleteCachedContent(ctx, name)
 }
 
 // ListCachedContents returns an iterator for all cached content.
-func (ch *CachingHelper) ListCachedContents(ctx context.Context) interface{} {
-	// TODO: Update to use new library's caching API
-	return nil
+func (ch *CachingHelper) ListCachedContents(ctx context.Context) *genai.CachedContentIterator {
+	return ch.client.ListCachedContents(ctx)
 }
