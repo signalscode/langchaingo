@@ -294,6 +294,9 @@ func convertCandidates(candidates []*genai.Candidate, usage *genai.GenerateConte
 							Name:      part.FunctionCall.Name,
 							Arguments: string(b),
 						},
+						// Capture thought signature for Gemini 3+ models.
+						// For parallel function calls, only the first call will have a signature.
+						ThoughtSignature: part.ThoughtSignature,
 					}
 					toolCalls = append(toolCalls, toolCall)
 				}
@@ -376,6 +379,10 @@ func convertParts(parts []llms.ContentPart) ([]*genai.Part, error) {
 				return convertedParts, err
 			}
 			out = genai.NewPartFromFunctionCall(fc.Name, argsMap)
+			// Include thought signature for Gemini 3+ models
+			if len(p.ThoughtSignature) > 0 {
+				out.ThoughtSignature = p.ThoughtSignature
+			}
 		case llms.ToolCallResponse:
 			out = genai.NewPartFromFunctionResponse(p.Name, map[string]any{
 				"response": p.Content,

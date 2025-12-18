@@ -102,6 +102,10 @@ type ToolCall struct {
 	Type string `json:"type"`
 	// FunctionCall is the function call to be executed.
 	FunctionCall *FunctionCall `json:"function,omitempty"`
+	// ThoughtSignature is an opaque signature for Gemini 3+ models that must be
+	// passed back exactly as received when sending conversation history.
+	// For parallel function calls, only the first call will have a signature.
+	ThoughtSignature []byte `json:"thought_signature,omitempty"`
 }
 
 func (ToolCall) isPart() {}
@@ -211,7 +215,11 @@ func ShowMessageContents(w io.Writer, msgs []MessageContent) {
 			case BinaryContent:
 				fmt.Fprintf(w, "BinaryContent MIME=%q, size=%d\n", pp.MIMEType, len(pp.Data))
 			case ToolCall:
-				fmt.Fprintf(w, "ToolCall ID=%v, Type=%v, Func=%v(%v)\n", pp.ID, pp.Type, pp.FunctionCall.Name, pp.FunctionCall.Arguments)
+				sigInfo := ""
+				if len(pp.ThoughtSignature) > 0 {
+					sigInfo = fmt.Sprintf(", SignatureLen=%d", len(pp.ThoughtSignature))
+				}
+				fmt.Fprintf(w, "ToolCall ID=%v, Type=%v, Func=%v(%v)%s\n", pp.ID, pp.Type, pp.FunctionCall.Name, pp.FunctionCall.Arguments, sigInfo)
 			case ToolCallResponse:
 				fmt.Fprintf(w, "ToolCallResponse ID=%v, Name=%v, Content=%v\n", pp.ToolCallID, pp.Name, pp.Content)
 			case ThoughtContent:
