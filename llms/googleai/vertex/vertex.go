@@ -389,6 +389,9 @@ func convertParts(parts []llms.ContentPart) ([]*genai.Part, error) {
 			if err != nil {
 				return nil, err
 			}
+			if typ != "" {
+				typ = "image/" + typ
+			}
 			out = genai.NewPartFromBytes(data, typ)
 		case llms.ToolCall:
 			fc := p.FunctionCall
