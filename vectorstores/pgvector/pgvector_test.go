@@ -399,7 +399,6 @@ func TestSimilaritySearchWithDifferentDimensions(t *testing.T) {
 
 	// use Google embedding (now default model is embedding-001, with dimensions:768) to add some data to collection
 	googleLLM, err := googleai.New(ctx,
-		googleai.WithRest(),
 		googleai.WithAPIKey("test-api-key"),
 		googleai.WithHTTPClient(rr.Client()),
 	)
