@@ -105,7 +105,7 @@ type ToolCall struct {
 	// ThoughtSignature is an opaque signature for Gemini 3+ models that must be
 	// passed back exactly as received when sending conversation history.
 	// For parallel function calls, only the first call will have a signature.
-	ThoughtSignature []byte `json:"thought_signature,omitempty"`
+	ThoughtSignature string `json:"thought_signature,omitempty"`
 }
 
 func (ToolCall) isPart() {}
@@ -132,7 +132,7 @@ type ThoughtContent struct {
 	// Signature is an opaque signature for the thought that must be passed back
 	// in subsequent requests. This is required for Gemini 3+ models when using
 	// tool calls or multi-turn conversations.
-	Signature []byte `json:"signature,omitempty"`
+	Signature string `json:"signature,omitempty"`
 }
 
 func (tc ThoughtContent) String() string {
@@ -145,7 +145,7 @@ func (tc ThoughtContent) String() string {
 func (ThoughtContent) isPart() {}
 
 // ThoughtPart creates a ThoughtContent from the given text and signature.
-func ThoughtPart(text string, signature []byte) ThoughtContent {
+func ThoughtPart(text string, signature string) ThoughtContent {
 	return ThoughtContent{
 		Text:      text,
 		Signature: signature,
@@ -216,8 +216,8 @@ func ShowMessageContents(w io.Writer, msgs []MessageContent) {
 				fmt.Fprintf(w, "BinaryContent MIME=%q, size=%d\n", pp.MIMEType, len(pp.Data))
 			case ToolCall:
 				sigInfo := ""
-				if len(pp.ThoughtSignature) > 0 {
-					sigInfo = fmt.Sprintf(", SignatureLen=%d", len(pp.ThoughtSignature))
+				if pp.ThoughtSignature != "" {
+					sigInfo = fmt.Sprintf(", Signature=%s", pp.ThoughtSignature)
 				}
 				fmt.Fprintf(w, "ToolCall ID=%v, Type=%v, Func=%v(%v)%s\n", pp.ID, pp.Type, pp.FunctionCall.Name, pp.FunctionCall.Arguments, sigInfo)
 			case ToolCallResponse:

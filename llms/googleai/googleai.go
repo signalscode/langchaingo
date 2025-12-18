@@ -445,7 +445,7 @@ func convertParts(parts []llms.ContentPart) ([]*genai.Part, error) {
 			}
 			out = genai.NewPartFromFunctionCall(fc.Name, argsMap)
 			// Include thought signature for Gemini 3+ models
-			if len(p.ThoughtSignature) > 0 {
+			if p.ThoughtSignature != "" {
 				out.ThoughtSignature = p.ThoughtSignature
 			}
 		case llms.ToolCallResponse:

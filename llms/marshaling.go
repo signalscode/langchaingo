@@ -85,11 +85,7 @@ func (mc *MessageContent) UnmarshalJSON(data []byte) error {
 			}
 			// Handle thought_signature if present
 			if part.ToolCall.ThoughtSignature != "" {
-				sig, err := base64.StdEncoding.DecodeString(part.ToolCall.ThoughtSignature)
-				if err != nil {
-					return fmt.Errorf("error decoding thought_signature: %w", err)
-				}
-				tc.ThoughtSignature = sig
+				tc.ThoughtSignature = part.ToolCall.ThoughtSignature
 			}
 			mc.Parts = append(mc.Parts, tc)
 		case "tool_response":
@@ -224,8 +220,8 @@ func (tc ToolCall) MarshalJSON() ([]byte, error) {
 		"function": json.RawMessage(fc),
 	}
 	// Include thought_signature if present
-	if len(tc.ThoughtSignature) > 0 {
-		toolCallMap["thought_signature"] = base64.StdEncoding.EncodeToString(tc.ThoughtSignature)
+	if tc.ThoughtSignature != "" {
+		toolCallMap["thought_signature"] = tc.ThoughtSignature
 	}
 	m := struct {
 		Type     string         `json:"type"`
@@ -267,11 +263,7 @@ func (tc *ToolCall) UnmarshalJSON(data []byte) error {
 	}
 	// Handle thought_signature if present
 	if sigStr, ok := toolCall["thought_signature"].(string); ok && sigStr != "" {
-		sig, err := base64.StdEncoding.DecodeString(sigStr)
-		if err != nil {
-			return fmt.Errorf("error decoding thought_signature: %w", err)
-		}
-		tc.ThoughtSignature = sig
+		tc.ThoughtSignature = sigStr
 	}
 	tc.ID = id
 	tc.Type = typ
