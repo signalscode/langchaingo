@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/tmc/langchaingo/llms/googleai"
-	"google.golang.org/api/option"
+	"google.golang.org/genai"
 )
 
 func TestNewWithOptions(t *testing.T) {
@@ -21,8 +21,8 @@ func TestDefaultOptions(t *testing.T) {
 	if opts.DefaultModel != "gemini-2.0-flash" {
 		t.Errorf("expected default model 'gemini-2.0-flash', got %q", opts.DefaultModel)
 	}
-	if opts.DefaultEmbeddingModel != "embedding-001" {
-		t.Errorf("expected default embedding model 'embedding-001', got %q", opts.DefaultEmbeddingModel)
+	if opts.DefaultEmbeddingModel != "text-embedding-004" {
+		t.Errorf("expected default embedding model 'text-embedding-004', got %q", opts.DefaultEmbeddingModel)
 	}
 	if opts.DefaultCandidateCount != 1 {
 		t.Errorf("expected default candidate count 1, got %d", opts.DefaultCandidateCount)
@@ -42,9 +42,12 @@ func TestDefaultOptions(t *testing.T) {
 	if opts.HarmThreshold != googleai.HarmBlockOnlyHigh {
 		t.Errorf("expected default harm threshold HarmBlockOnlyHigh, got %v", opts.HarmThreshold)
 	}
+	if opts.Backend != genai.BackendGeminiAPI {
+		t.Errorf("expected default backend BackendGeminiAPI, got %v", opts.Backend)
+	}
 }
 
-func TestOptionsApplication(t *testing.T) { //nolint:funlen // comprehensive test //nolint:funlen // comprehensive test
+func TestOptionsApplication(t *testing.T) { //nolint:funlen // comprehensive test
 	// Test that options modify the default correctly
 	defaultOpts := googleai.DefaultOptions()
 
@@ -99,35 +102,16 @@ func TestOptionsApplication(t *testing.T) { //nolint:funlen // comprehensive tes
 		t.Errorf("WithCloudLocation did not update location")
 	}
 
-	// Test client options
+	// Test API key
 	googleai.WithAPIKey("test-key")(&defaultOpts)
-	if len(defaultOpts.ClientOptions) == 0 {
-		t.Error("WithAPIKey did not add client option")
+	if defaultOpts.APIKey != "test-key" {
+		t.Error("WithAPIKey did not update API key")
 	}
 
-	googleai.WithCredentialsFile("creds.json")(&defaultOpts)
-	found := false
-	for _, opt := range defaultOpts.ClientOptions {
-		if opt != nil {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Error("WithCredentialsFile did not add client option")
-	}
-
-	googleai.WithCredentialsJSON([]byte("{}"))(&defaultOpts)
-	if len(defaultOpts.ClientOptions) < 2 {
-		t.Error("WithCredentialsJSON did not add client option")
-	}
-
-	// Test empty credential options
-	emptyOpts := googleai.DefaultOptions()
-	googleai.WithCredentialsFile("")(&emptyOpts)
-	googleai.WithCredentialsJSON([]byte{})(&emptyOpts)
-	if len(emptyOpts.ClientOptions) != 0 {
-		t.Error("Empty credential options should not add client options")
+	// Test backend
+	googleai.WithBackend(genai.BackendVertexAI)(&defaultOpts)
+	if defaultOpts.Backend != genai.BackendVertexAI {
+		t.Error("WithBackend did not update backend")
 	}
 }
 
@@ -163,7 +147,7 @@ func TestVertexStructure(t *testing.T) {
 	v.CallbacksHandler = nil
 	v.client = nil
 	v.opts = googleai.Options{}
-	v.palmClient = nil
+	v.model = ""
 }
 
 func TestWithHTTPClientOption(t *testing.T) {
@@ -175,10 +159,9 @@ func TestWithHTTPClientOption(t *testing.T) {
 	// Apply the HTTP client option
 	googleai.WithHTTPClient(httpClient)(&opts)
 
-	// We can't directly check the client options, but we can verify
-	// that the option was added
-	if len(opts.ClientOptions) == 0 {
-		t.Error("WithHTTPClient did not add a client option")
+	// Verify that the HTTP client was set
+	if opts.HTTPClient != httpClient {
+		t.Error("WithHTTPClient did not set the HTTP client")
 	}
 }
 
@@ -190,23 +173,21 @@ func TestOptionsEnsureAuthPresent(t *testing.T) {
 		expectAddition bool
 	}{
 		{
-			name: "with existing auth options",
+			name: "with existing API key",
 			opts: googleai.Options{
-				ClientOptions: []option.ClientOption{
-					option.WithAPIKey("existing-key"),
-				},
+				APIKey: "existing-key",
 			},
 			envAPIKey:      "env-key",
 			expectAddition: false,
 		},
 		{
-			name:           "without auth options but with env key",
+			name:           "without API key but with env key",
 			opts:           googleai.Options{},
 			envAPIKey:      "env-key",
 			expectAddition: true,
 		},
 		{
-			name:           "without auth options and no env key",
+			name:           "without API key and no env key",
 			opts:           googleai.Options{},
 			envAPIKey:      "",
 			expectAddition: false,
@@ -215,8 +196,9 @@ func TestOptionsEnsureAuthPresent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Clear env var first
+			// Clear env vars first
 			t.Setenv("GOOGLE_API_KEY", "")
+			t.Setenv("GEMINI_API_KEY", "")
 
 			// Set env var for test if needed
 			if tt.envAPIKey != "" {
@@ -225,16 +207,16 @@ func TestOptionsEnsureAuthPresent(t *testing.T) {
 
 			// Make a copy of opts to avoid modifying the original
 			opts := tt.opts
-			initialLen := len(opts.ClientOptions)
+			initialKey := opts.APIKey
 			opts.EnsureAuthPresent()
 
 			if tt.expectAddition {
-				if len(opts.ClientOptions) <= initialLen {
-					t.Error("expected auth option to be added")
+				if opts.APIKey == initialKey || opts.APIKey == "" {
+					t.Error("expected API key to be added from environment")
 				}
 			} else {
-				if len(opts.ClientOptions) > initialLen {
-					t.Error("expected no auth option to be added")
+				if opts.APIKey != initialKey {
+					t.Error("expected API key to not be changed")
 				}
 			}
 		})
