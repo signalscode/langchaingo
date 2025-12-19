@@ -206,6 +206,7 @@ func (o *OpenAIFunctionsAgent) constructScratchPad(steps []schema.AgentStep) []l
 	// Group steps by their position to handle multiple tool calls
 	// that might be executed in parallel
 	var currentToolCalls []llms.ToolCall
+	var currentThoughtParts []llms.ThoughtContent
 	var currentLog string
 
 	for i, step := range steps {
@@ -216,8 +217,9 @@ func (o *OpenAIFunctionsAgent) constructScratchPad(steps []schema.AgentStep) []l
 			if len(currentToolCalls) > 0 {
 				// Add the previous group as an AI message
 				messages = append(messages, llms.AIChatMessage{
-					Content:   currentLog,
-					ToolCalls: currentToolCalls,
+					Content:      currentLog,
+					ToolCalls:    currentToolCalls,
+					ThoughtParts: currentThoughtParts,
 				})
 				// Add tool responses for the previous group
 				for j := i - len(currentToolCalls); j < i; j++ {
@@ -227,11 +229,21 @@ func (o *OpenAIFunctionsAgent) constructScratchPad(steps []schema.AgentStep) []l
 					})
 				}
 				currentToolCalls = nil
+				currentThoughtParts = nil
 			}
 			currentLog = step.Action.Log
+
+			// Capture thought parts from the first step in this group
+			// (thought parts are attached to the first action in a group)
+			for _, tp := range step.Action.ThoughtParts {
+				currentThoughtParts = append(currentThoughtParts, llms.ThoughtContent{
+					Text:      tp.Text,
+					Signature: tp.Signature,
+				})
+			}
 		}
 
-		// Add this tool call to the current group
+		// Add this tool call to the current group, including thought signature
 		currentToolCalls = append(currentToolCalls, llms.ToolCall{
 			ID:   step.Action.ToolID,
 			Type: "function",
@@ -239,14 +251,16 @@ func (o *OpenAIFunctionsAgent) constructScratchPad(steps []schema.AgentStep) []l
 				Name:      step.Action.Tool,
 				Arguments: step.Action.ToolInput,
 			},
+			ThoughtSignature: step.Action.ThoughtSignature,
 		})
 	}
 
 	// Don't forget the last group
 	if len(currentToolCalls) > 0 {
 		messages = append(messages, llms.AIChatMessage{
-			Content:   currentLog,
-			ToolCalls: currentToolCalls,
+			Content:      currentLog,
+			ToolCalls:    currentToolCalls,
+			ThoughtParts: currentThoughtParts,
 		})
 		// Add tool responses for the last group
 		for j := len(steps) - len(currentToolCalls); j < len(steps); j++ {
@@ -273,7 +287,17 @@ func (o *OpenAIFunctionsAgent) ParseOutput(contentResp *llms.ContentResponse) (
 		// Handle multiple tool calls properly
 		actions := make([]schema.AgentAction, 0, len(choice.ToolCalls))
 
-		for _, toolCall := range choice.ToolCalls {
+		// Convert ThoughtParts from llms.ThoughtContent to schema.ThoughtContent
+		// These are attached to the first action to preserve reasoning context
+		var thoughtParts []schema.ThoughtContent
+		for _, tp := range choice.ThoughtParts {
+			thoughtParts = append(thoughtParts, schema.ThoughtContent{
+				Text:      tp.Text,
+				Signature: tp.Signature,
+			})
+		}
+
+		for i, toolCall := range choice.ToolCalls {
 			functionName := toolCall.FunctionCall.Name
 			toolInputStr := toolCall.FunctionCall.Arguments
 			toolInputMap := make(map[string]any, 0)
@@ -300,12 +324,21 @@ func (o *OpenAIFunctionsAgent) ParseOutput(contentResp *llms.ContentResponse) (
 				contentMsg = fmt.Sprintf("responded: %s\n", choice.Content)
 			}
 
-			actions = append(actions, schema.AgentAction{
-				Tool:      functionName,
-				ToolInput: toolInput,
-				Log:       fmt.Sprintf("Invoking: %s with %s %s", functionName, toolInputStr, contentMsg),
-				ToolID:    toolCall.ID,
-			})
+			action := schema.AgentAction{
+				Tool:             functionName,
+				ToolInput:        toolInput,
+				Log:              fmt.Sprintf("Invoking: %s with %s %s", functionName, toolInputStr, contentMsg),
+				ToolID:           toolCall.ID,
+				ThoughtSignature: toolCall.ThoughtSignature,
+			}
+
+			// Attach thought parts to the first action only
+			// (they represent the reasoning leading up to all the tool calls)
+			if i == 0 && len(thoughtParts) > 0 {
+				action.ThoughtParts = thoughtParts
+			}
+
+			actions = append(actions, action)
 		}
 
 		return actions, nil, nil
