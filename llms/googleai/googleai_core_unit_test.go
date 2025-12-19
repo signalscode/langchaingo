@@ -1,6 +1,7 @@
 package googleai
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"testing"
 
@@ -94,7 +95,7 @@ func TestConvertParts(t *testing.T) { //nolint:funlen // comprehensive test
 			parts: []llms.ContentPart{
 				llms.ThoughtContent{
 					Text:      "Let me think about this...",
-					Signature: "signature-bytes",
+					Signature: base64.StdEncoding.EncodeToString([]byte("signature-bytes")),
 				},
 			},
 			wantErr:   false,
@@ -428,10 +429,11 @@ func TestThoughtContentHandling(t *testing.T) {
 	})
 
 	t.Run("thought content can be passed back", func(t *testing.T) {
+		sig := base64.StdEncoding.EncodeToString([]byte("prev-sig"))
 		parts := []llms.ContentPart{
 			llms.ThoughtContent{
 				Text:      "Previous thought",
-				Signature: "prev-sig",
+				Signature: sig,
 			},
 			llms.TextContent{Text: "Continue from here"},
 		}
@@ -443,7 +445,9 @@ func TestThoughtContentHandling(t *testing.T) {
 		// First part should be a thought
 		assert.True(t, result[0].Thought)
 		assert.Equal(t, "Previous thought", result[0].Text)
-		assert.Equal(t, "prev-sig", result[0].ThoughtSignature)
+		sig2 := base64.StdEncoding.EncodeToString(result[0].ThoughtSignature)
+		assert.NoError(t, err)
+		assert.Equal(t, sig, sig2)
 
 		// Second part should be regular text
 		assert.False(t, result[1].Thought)

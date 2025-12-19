@@ -475,10 +475,16 @@ func convertParts(parts []llms.ContentPart) ([]*genai.Part, error) {
 			})
 		case llms.ThoughtContent:
 			// Include thought content in subsequent requests
+			var sig []byte
+			if p.Signature != "" {
+				if v, err := base64.StdEncoding.DecodeString(p.Signature); err == nil {
+					sig = v
+				}
+			}
 			out = &genai.Part{
 				Text:             p.Text,
 				Thought:          true,
-				ThoughtSignature: []byte(p.Signature),
+				ThoughtSignature: sig,
 			}
 		}
 
