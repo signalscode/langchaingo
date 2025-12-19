@@ -66,6 +66,11 @@ type AIChatMessage struct {
 
 	// This field is only used with the deepseek-reasoner model and represents the reasoning contents of the assistant message before the final answer.
 	ReasoningContent string `json:"reasoning_content,omitempty"`
+
+	// ThoughtParts contains thought/reasoning parts from models that support
+	// extended thinking (e.g., Gemini 3 models). These must be included in
+	// subsequent messages to maintain reasoning context for tool calls.
+	ThoughtParts []ThoughtContent `json:"thought_parts,omitempty"`
 }
 
 func (m AIChatMessage) GetType() ChatMessageType       { return ChatMessageTypeAI }

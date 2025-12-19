@@ -3,6 +3,7 @@ package vertex
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -288,9 +289,10 @@ func convertCandidates(candidates []*genai.Candidate, usage *genai.GenerateConte
 			for _, part := range candidate.Content.Parts {
 				// Handle thought parts (for Gemini 3+ models)
 				if part.Thought {
+					sig := base64.StdEncoding.EncodeToString(part.ThoughtSignature)
 					thoughtContent := llms.ThoughtContent{
 						Text:      part.Text,
-						Signature: part.ThoughtSignature,
+						Signature: sig,
 					}
 					thoughtParts = append(thoughtParts, thoughtContent)
 					continue
@@ -400,7 +402,9 @@ func convertParts(parts []llms.ContentPart) ([]*genai.Part, error) {
 				return convertedParts, err
 			}
 			out = genai.NewPartFromFunctionCall(fc.Name, argsMap)
-			out.ThoughtSignature = []byte(p.ThoughtSignature)
+			if sig, err := base64.StdEncoding.DecodeString(p.ThoughtSignature); err == nil {
+				out.ThoughtSignature = sig
+			}
 		case llms.ToolCallResponse:
 			out = genai.NewPartFromFunctionResponse(p.Name, map[string]any{
 				"response": p.Content,

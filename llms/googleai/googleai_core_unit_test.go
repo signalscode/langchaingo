@@ -328,7 +328,7 @@ func TestConvertCandidates(t *testing.T) { //nolint:funlen // comprehensive test
 							{
 								Text:             "Let me think...",
 								Thought:          true,
-								ThoughtSignature: "signature",
+								ThoughtSignature: []byte("signature"),
 							},
 							{Text: "The answer is 42"},
 						},
@@ -401,7 +401,7 @@ func TestThoughtContentHandling(t *testing.T) {
 						{
 							Text:             "Let me analyze this step by step...",
 							Thought:          true,
-							ThoughtSignature: "thought-sig-1",
+							ThoughtSignature: []byte("thought-sig-1"),
 						},
 						{Text: "The final answer is 42"},
 					},
