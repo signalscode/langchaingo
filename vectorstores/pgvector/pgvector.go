@@ -265,6 +265,31 @@ func (s Store) AddDocuments(
 		return nil, ErrEmbedderWrongNumberVectors
 	}
 
+	filteredIndices := s.vectorDeduplicate(ctx, opts, vectors)
+
+	if len(filteredIndices) > 0 {
+		filteredMap := make(map[int]struct{}, len(filteredIndices))
+		for _, idx := range filteredIndices {
+			filteredMap[idx] = struct{}{}
+		}
+
+		filteredDocs := make([]schema.Document, 0, len(docs)-len(filteredIndices))
+		for i, doc := range docs {
+			if _, ok := filteredMap[i]; !ok {
+				filteredDocs = append(filteredDocs, doc)
+			}
+		}
+		docs = filteredDocs
+
+		filteredVectors := make([][]float32, 0, len(vectors)-len(filteredIndices))
+		for i, vec := range vectors {
+			if _, ok := filteredMap[i]; !ok {
+				filteredVectors = append(filteredVectors, vec)
+			}
+		}
+		vectors = filteredVectors
+	}
+
 	b := &pgx.Batch{}
 	sql := fmt.Sprintf(`INSERT INTO %s (uuid, document, embedding, cmetadata, collection_id)
 		VALUES($1, $2, $3, $4, $5)`, s.embeddingTableName)
@@ -480,6 +505,21 @@ func (s Store) deduplicate(
 	for _, doc := range docs {
 		if !opts.Deduplicater(ctx, doc) {
 			filtered = append(filtered, doc)
+		}
+	}
+
+	return filtered
+}
+
+func (s Store) vectorDeduplicate(ctx context.Context, opts vectorstores.Options, vectors [][]float32) []int {
+	if opts.VectorDeduplicater == nil {
+		return nil
+	}
+
+	filtered := make([]int, 0, len(vectors))
+	for i := range len(vectors) {
+		if opts.VectorDeduplicater(ctx, vectors[i]) {
+			filtered = append(filtered, i)
 		}
 	}
 

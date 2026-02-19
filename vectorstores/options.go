@@ -12,11 +12,12 @@ type Option func(*Options)
 
 // Options is a set of options for similarity search and add documents.
 type Options struct {
-	NameSpace      string
-	ScoreThreshold float32
-	Filters        any
-	Embedder       embeddings.Embedder
-	Deduplicater   func(context.Context, schema.Document) bool
+	NameSpace          string
+	ScoreThreshold     float32
+	Filters            any
+	Embedder           embeddings.Embedder
+	Deduplicater       func(context.Context, schema.Document) bool
+	VectorDeduplicater func(context.Context, []float32) bool // returns true if the vector should be deduplicated
 }
 
 // WithNameSpace returns an Option for setting the name space.
@@ -57,5 +58,14 @@ func WithEmbedder(embedder embeddings.Embedder) Option {
 func WithDeduplicater(fn func(ctx context.Context, doc schema.Document) bool) Option {
 	return func(o *Options) {
 		o.Deduplicater = fn
+	}
+}
+
+// WithVectorDeduplicater returns an Option for setting the vector deduplicater that could be used
+// when adding documents. This is useful to prevent wasting time on creating an embedding
+// when one already exists.
+func WithVectorDeduplicater(fn func(ctx context.Context, vector []float32) bool) Option {
+	return func(o *Options) {
+		o.VectorDeduplicater = fn
 	}
 }
