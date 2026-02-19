@@ -118,7 +118,7 @@ func TestLLMChainWithGoogleAI(t *testing.T) {
 
 	// Configure client with httprr
 	var opts []googleai.Option
-	opts = append(opts, googleai.WithRest(), googleai.WithHTTPClient(rr.Client()))
+	opts = append(opts, googleai.WithHTTPClient(rr.Client()))
 
 	model, err := googleai.New(ctx, opts...)
 	require.NoError(t, err)

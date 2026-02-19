@@ -45,9 +45,10 @@ func (mc *MessageContent) UnmarshalJSON(data []byte) error {
 			} `json:"binary,omitempty"`
 			ID       string `json:"id"`
 			ToolCall struct {
-				ID           string        `json:"id"`
-				Type         string        `json:"type"`
-				FunctionCall *FunctionCall `json:"function"`
+				ID               string        `json:"id"`
+				Type             string        `json:"type"`
+				FunctionCall     *FunctionCall `json:"function"`
+				ThoughtSignature string        `json:"thought_signature,omitempty"`
 			} `json:"tool_call"`
 			ToolResponse struct {
 				ToolCallID string `json:"tool_call_id"`
@@ -77,11 +78,16 @@ func (mc *MessageContent) UnmarshalJSON(data []byte) error {
 			}
 			mc.Parts = append(mc.Parts, BinaryContent{MIMEType: part.Binary.MIMEType, Data: decoded})
 		case "tool_call":
-			mc.Parts = append(mc.Parts, ToolCall{
+			tc := ToolCall{
 				ID:           part.ToolCall.ID,
 				Type:         part.ToolCall.Type,
 				FunctionCall: part.ToolCall.FunctionCall,
-			})
+			}
+			// Handle thought_signature if present
+			if part.ToolCall.ThoughtSignature != "" {
+				tc.ThoughtSignature = part.ToolCall.ThoughtSignature
+			}
+			mc.Parts = append(mc.Parts, tc)
 		case "tool_response":
 			mc.Parts = append(mc.Parts, ToolCallResponse{
 				ToolCallID: part.ToolResponse.ToolCallID,
@@ -208,16 +214,21 @@ func (tc ToolCall) MarshalJSON() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	toolCallMap := map[string]any{
+		"id":       tc.ID,
+		"type":     tc.Type,
+		"function": json.RawMessage(fc),
+	}
+	// Include thought_signature if present
+	if tc.ThoughtSignature != "" {
+		toolCallMap["thought_signature"] = tc.ThoughtSignature
+	}
 	m := struct {
 		Type     string         `json:"type"`
 		ToolCall map[string]any `json:"tool_call"`
 	}{
-		Type: "tool_call",
-		ToolCall: map[string]any{
-			"id":       tc.ID,
-			"type":     tc.Type,
-			"function": json.RawMessage(fc),
-		},
+		Type:     "tool_call",
+		ToolCall: toolCallMap,
 	}
 	return json.Marshal(m)
 }
@@ -249,6 +260,10 @@ func (tc *ToolCall) UnmarshalJSON(data []byte) error {
 		if err := json.Unmarshal(fcData, &fc); err != nil {
 			return fmt.Errorf("error unmarshalling function call: %w", err)
 		}
+	}
+	// Handle thought_signature if present
+	if sigStr, ok := toolCall["thought_signature"].(string); ok && sigStr != "" {
+		tc.ThoughtSignature = sigStr
 	}
 	tc.ID = id
 	tc.Type = typ

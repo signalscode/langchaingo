@@ -2,48 +2,10 @@ package googleai
 
 import (
 	"context"
-	"errors"
 	"testing"
 
-	"github.com/google/generative-ai-go/genai"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 )
-
-// Mock structures for testing
-
-type MockEmbeddingModel struct {
-	mock.Mock
-}
-
-func (m *MockEmbeddingModel) NewBatch() *MockBatchEmbedder {
-	args := m.Called()
-	return args.Get(0).(*MockBatchEmbedder)
-}
-
-func (m *MockEmbeddingModel) BatchEmbedContents(ctx context.Context, batch *MockBatchEmbedder) (*genai.BatchEmbedContentsResponse, error) {
-	args := m.Called(ctx, batch)
-	return args.Get(0).(*genai.BatchEmbedContentsResponse), args.Error(1)
-}
-
-type MockBatchEmbedder struct {
-	mock.Mock
-	contents []string
-}
-
-func (m *MockBatchEmbedder) AddContent(content genai.Text) *MockBatchEmbedder {
-	m.contents = append(m.contents, string(content))
-	return m
-}
-
-type MockGenAIClient struct {
-	mock.Mock
-}
-
-func (m *MockGenAIClient) EmbeddingModel(name string) *MockEmbeddingModel {
-	args := m.Called(name)
-	return args.Get(0).(*MockEmbeddingModel)
-}
 
 // Note: These tests are conceptual as we cannot easily mock the genai.Client
 // without significant changes to the codebase. In practice, these would require
@@ -98,15 +60,6 @@ func TestCreateEmbedding_ConceptualTests(t *testing.T) {
 		_ = texts
 		// The actual test would verify single batch for exactly 100 texts
 	})
-
-	t.Run("embedding API error", func(t *testing.T) {
-		// Would test error handling when the embedding API fails
-		texts := []string{"Hello world"}
-		expectedError := errors.New("API error")
-		_ = texts
-		_ = expectedError
-		// The actual test would verify error propagation
-	})
 }
 
 func TestEmbeddingBatchLogic(t *testing.T) {
@@ -151,7 +104,8 @@ func TestEmbeddingConstants(t *testing.T) {
 	const expectedBatchSize = 100
 
 	// This is documented in the CreateEmbedding function
-	// "The Gemini Embedding Batch API allows up to 100 documents per batch"
+	// "The new SDK supports batching automatically within EmbedContent"
+	// "Process in batches of 100 (API limit)"
 	assert.Equal(t, 100, expectedBatchSize)
 }
 

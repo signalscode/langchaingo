@@ -60,7 +60,11 @@ func newHTTPRRClient(t *testing.T, opts ...Option) *GoogleAI {
 	})
 
 	// Configure client with httprr
-	opts = append(opts, WithRest(), WithHTTPClient(rr.Client()))
+	// The new SDK requires an API key even for testing
+	if apiKey == "" {
+		opts = append(opts, WithAPIKey("test-api-key"))
+	}
+	opts = append(opts, WithHTTPClient(rr.Client()))
 
 	llm, err := New(context.Background(), opts...)
 	if err != nil {
@@ -387,7 +391,6 @@ func TestGoogleAIErrorHandling(t *testing.T) {
 
 	// Create client with invalid API key
 	llm, err := New(context.Background(),
-		WithRest(),
 		WithAPIKey("invalid-key"),
 		WithHTTPClient(rr.Client()),
 	)

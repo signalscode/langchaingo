@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -26,10 +25,8 @@ import (
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/googleai"
 	"github.com/tmc/langchaingo/llms/googleai/vertex"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -64,7 +61,6 @@ func newGoogleAIClient(t *testing.T, opts ...googleai.Option) *googleai.GoogleAI
 
 	// Configure client with httprr and test credentials
 	opts = append(opts,
-		googleai.WithRest(),
 		googleai.WithAPIKey("test-api-key"),
 		googleai.WithHTTPClient(rr.Client()),
 	)
@@ -172,14 +168,7 @@ func TestVertexShared(t *testing.T) {
 func TestVertex_WithCustomEmbeddingModel(t *testing.T) {
 	t.Helper()
 	t.Parallel()
-	const modelName = "custom-embedding-model"
-	opts := getCustomEmbeddingModelTestOptionsWithGRPC(t, modelName)
-
-	llm, err := vertex.New(context.Background(), opts...)
-	require.NoError(t, err)
-
-	_, err = llm.CreateEmbedding(context.Background(), []string{"test"})
-	require.NoError(t, err)
+	t.Skip("Skipping gRPC test - new SDK uses HTTP only")
 }
 
 func testMultiContentText(t *testing.T, llm llms.Model) {
@@ -636,43 +625,11 @@ func testWithHTTPClient(t *testing.T, llm llms.Model) {
 
 func getHTTPTestClientOptions() []googleai.Option {
 	client := &http.Client{Transport: &testRequestInterceptor{}}
-	return []googleai.Option{googleai.WithRest(), googleai.WithHTTPClient(client)}
+	return []googleai.Option{googleai.WithHTTPClient(client)}
 }
 
-// getCustomEmbeddingModelTestOptionsWithGRPC creates options to connect to a fake gRPC server.
-func getCustomEmbeddingModelTestOptionsWithGRPC(t *testing.T, model string) []googleai.Option {
-	t.Helper()
-
-	// Create an in-memory "network connection"
-	lis := bufconn.Listen(1024 * 1024)
-	// Create the mock gRPC server and register the fake prediction service
-	grpcServer := grpc.NewServer()
-	mockPredictionServer := &mockPredictionServer{
-		predictFunc: getPredictHandlerFuncWithCustomEmbeddingModel(model)}
-	aiplatformpb.RegisterPredictionServiceServer(grpcServer, mockPredictionServer)
-
-	go func() {
-		if err := grpcServer.Serve(lis); err != nil {
-			t.Logf("gRPC server exited with error: %v", err)
-		}
-	}()
-
-	t.Cleanup(func() { grpcServer.Stop() })
-
-	// Create a client connection to the fake server
-	conn, err := grpc.DialContext(context.Background(), "bufnet",
-		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
-			return lis.Dial()
-		}),
-		grpc.WithInsecure(),
-	)
-	require.NoError(t, err)
-
-	return []googleai.Option{
-		googleai.WithDefaultEmbeddingModel(model),
-		googleai.WithGRPCConn(conn),
-	}
-}
+// Note: gRPC testing functionality was removed with the SDK migration.
+// The new SDK uses HTTP only, so gRPC mocking is no longer needed.
 
 type testRequestInterceptor struct{}
 

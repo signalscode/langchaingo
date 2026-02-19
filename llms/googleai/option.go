@@ -3,115 +3,110 @@ package googleai
 import (
 	"net/http"
 	"os"
-	"reflect"
 
-	"cloud.google.com/go/vertexai/genai"
 	"github.com/tmc/langchaingo/llms"
-	"google.golang.org/api/option"
-	"google.golang.org/grpc"
+	"google.golang.org/genai"
 )
 
 // Options is a set of options for GoogleAI and Vertex clients.
 type Options struct {
-	CloudProject          string
-	CloudLocation         string
-	DefaultModel          string
-	DefaultEmbeddingModel string
-	DefaultCandidateCount int
-	DefaultMaxTokens      int
-	DefaultTemperature    float64
-	DefaultTopK           int
-	DefaultTopP           float64
-	HarmThreshold         HarmBlockThreshold
+	// APIKey is the API key for the Gemini API.
+	// Can also be set via the GOOGLE_API_KEY or GEMINI_API_KEY environment variable.
+	APIKey string
 
-	ClientOptions []option.ClientOption
+	// CloudProject is the GCP project ID for Vertex AI.
+	// Can also be set via the GOOGLE_CLOUD_PROJECT environment variable.
+	CloudProject string
+
+	// CloudLocation is the GCP location/region for Vertex AI.
+	// Can also be set via the GOOGLE_CLOUD_LOCATION or GOOGLE_CLOUD_REGION environment variable.
+	CloudLocation string
+
+	// Backend specifies which backend to use (Gemini API or Vertex AI).
+	// Defaults to BackendGeminiAPI.
+	Backend genai.Backend
+
+	// DefaultModel is the default model to use for content generation.
+	DefaultModel string
+
+	// DefaultEmbeddingModel is the default model to use for embeddings.
+	DefaultEmbeddingModel string
+
+	// DefaultCandidateCount is the default number of candidates to generate.
+	DefaultCandidateCount int
+
+	// DefaultMaxTokens is the default maximum number of tokens to generate.
+	DefaultMaxTokens int
+
+	// DefaultTemperature is the default temperature for generation.
+	DefaultTemperature float64
+
+	// DefaultTopK is the default top-k value for generation.
+	DefaultTopK int
+
+	// DefaultTopP is the default top-p value for generation.
+	DefaultTopP float64
+
+	// HarmThreshold is the safety/harm setting for the model.
+	HarmThreshold HarmBlockThreshold
+
+	// HTTPClient is an optional custom HTTP client to use.
+	HTTPClient *http.Client
+
+	IncludeThoughts bool
+	ThinkingLevel   genai.ThinkingLevel
+	ThinkingBudget  int32
 }
 
+// DefaultOptions returns the default options for GoogleAI.
 func DefaultOptions() Options {
 	return Options{
-		CloudProject:          "",
-		CloudLocation:         "",
+		Backend:               genai.BackendGeminiAPI,
 		DefaultModel:          "gemini-2.0-flash",
-		DefaultEmbeddingModel: "embedding-001",
+		DefaultEmbeddingModel: "text-embedding-004",
 		DefaultCandidateCount: 1,
 		DefaultMaxTokens:      2048,
 		DefaultTemperature:    0.5,
 		DefaultTopK:           3,
 		DefaultTopP:           0.95,
 		HarmThreshold:         HarmBlockOnlyHigh,
+		IncludeThoughts:       false,
+		ThinkingLevel:         genai.ThinkingLevelMinimal,
+		ThinkingBudget:        0,
 	}
 }
 
-// EnsureAuthPresent attempts to ensure that the client has authentication information. If it does not, it will attempt to use the GOOGLE_API_KEY environment variable.
+// EnsureAuthPresent attempts to ensure that the client has authentication information.
+// If it does not, it will attempt to use the GOOGLE_API_KEY environment variable.
 func (o *Options) EnsureAuthPresent() {
-	if !hasAuthOptions(o.ClientOptions) {
+	if o.APIKey == "" {
 		if key := os.Getenv("GOOGLE_API_KEY"); key != "" {
-			WithAPIKey(key)(o)
+			o.APIKey = key
+		} else if key := os.Getenv("GEMINI_API_KEY"); key != "" {
+			o.APIKey = key
 		}
 	}
 }
 
+// Option is a function that configures Options.
 type Option func(*Options)
 
-// WithAPIKey passes the API KEY (token) to the client. This is useful for
-// googleai clients.
+// WithAPIKey passes the API KEY (token) to the client.
 func WithAPIKey(apiKey string) Option {
 	return func(opts *Options) {
-		opts.ClientOptions = append(opts.ClientOptions, option.WithAPIKey(apiKey))
+		opts.APIKey = apiKey
 	}
 }
 
-// WithCredentialsJSON append a ClientOption that authenticates
-// API calls with the given service account or refresh token JSON
-// credentials.
-func WithCredentialsJSON(credentialsJSON []byte) Option {
-	return func(opts *Options) {
-		if len(credentialsJSON) == 0 {
-			return
-		}
-		opts.ClientOptions = append(opts.ClientOptions, option.WithCredentialsJSON(credentialsJSON))
-	}
-}
-
-// WithCredentialsFile append a ClientOption that authenticates
-// API calls with the given service account or refresh token JSON
-// credentials file.
-func WithCredentialsFile(credentialsFile string) Option {
-	return func(opts *Options) {
-		if credentialsFile == "" {
-			return
-		}
-		opts.ClientOptions = append(opts.ClientOptions, option.WithCredentialsFile(credentialsFile))
-	}
-}
-
-// WithRest configures the client to use the REST API.
-func WithRest() Option {
-	return func(opts *Options) {
-		opts.ClientOptions = append(opts.ClientOptions, genai.WithREST())
-	}
-}
-
-// WithHTTPClient append a ClientOption that uses the provided HTTP client to
-// make requests.
-// This is useful for vertex clients.
+// WithHTTPClient sets a custom HTTP client to use for requests.
 func WithHTTPClient(httpClient *http.Client) Option {
 	return func(opts *Options) {
-		opts.ClientOptions = append(opts.ClientOptions, option.WithHTTPClient(httpClient))
+		opts.HTTPClient = httpClient
 	}
 }
 
-// WithGRPCConn appends a ClientOption that uses the provided gRPC client connection to
-// make requests.
-// This is useful for testing embeddings in vertex clients.
-func WithGRPCConn(conn *grpc.ClientConn) Option {
-	return func(opts *Options) {
-		opts.ClientOptions = append(opts.ClientOptions, option.WithGRPCConn(conn))
-	}
-}
-
-// WithCloudProject passes the GCP cloud project name to the client. This is
-// useful for vertex clients.
+// WithCloudProject passes the GCP cloud project name to the client.
+// This is useful for Vertex AI clients.
 func WithCloudProject(p string) Option {
 	return func(opts *Options) {
 		opts.CloudProject = p
@@ -119,23 +114,49 @@ func WithCloudProject(p string) Option {
 }
 
 // WithCloudLocation passes the GCP cloud location (region) name to the client.
-// This is useful for vertex clients.
+// This is useful for Vertex AI clients.
 func WithCloudLocation(l string) Option {
 	return func(opts *Options) {
 		opts.CloudLocation = l
 	}
 }
 
-// WithDefaultModel passes a default content model name to the client. This
-// model name is used if not explicitly provided in specific client invocations.
+func WithIncludeThoughts(includeThoughts bool) Option {
+	return func(opts *Options) {
+		opts.IncludeThoughts = includeThoughts
+	}
+}
+
+func WithThinkingLevel(thinkingLevel genai.ThinkingLevel) Option {
+	return func(opts *Options) {
+		opts.ThinkingLevel = thinkingLevel
+	}
+}
+
+func WithThinkingBudget(thinkingBudget int32) Option {
+
+	return func(opts *Options) {
+		opts.ThinkingBudget = thinkingBudget
+	}
+}
+
+// WithBackend sets the backend to use (Gemini API or Vertex AI).
+func WithBackend(backend genai.Backend) Option {
+	return func(opts *Options) {
+		opts.Backend = backend
+	}
+}
+
+// WithDefaultModel passes a default content model name to the client.
+// This model name is used if not explicitly provided in specific client invocations.
 func WithDefaultModel(defaultModel string) Option {
 	return func(opts *Options) {
 		opts.DefaultModel = defaultModel
 	}
 }
 
-// WithDefaultModel passes a default embedding model name to the client. This
-// model name is used if not explicitly provided in specific client invocations.
+// WithDefaultEmbeddingModel passes a default embedding model name to the client.
+// This model name is used if not explicitly provided in specific client invocations.
 func WithDefaultEmbeddingModel(defaultEmbeddingModel string) Option {
 	return func(opts *Options) {
 		opts.DefaultEmbeddingModel = defaultEmbeddingModel
@@ -156,7 +177,7 @@ func WithDefaultMaxTokens(maxTokens int) Option {
 	}
 }
 
-// WithDefaultTemperature sets the maximum token count for the model.
+// WithDefaultTemperature sets the temperature for the model.
 func WithDefaultTemperature(defaultTemperature float64) Option {
 	return func(opts *Options) {
 		opts.DefaultTemperature = defaultTemperature
@@ -186,8 +207,7 @@ func WithHarmThreshold(ht HarmBlockThreshold) Option {
 }
 
 // WithCachedContent enables the use of pre-created cached content.
-// The cached content must be created separately using Client.CreateCachedContent.
-// This is different from Anthropic's inline cache control.
+// The cached content must be created separately using the Caches API.
 func WithCachedContent(name string) llms.CallOption {
 	return func(o *llms.CallOptions) {
 		if o.Metadata == nil {
@@ -197,6 +217,7 @@ func WithCachedContent(name string) llms.CallOption {
 	}
 }
 
+// HarmBlockThreshold is the threshold for blocking harmful content.
 type HarmBlockThreshold int32
 
 const (
@@ -212,21 +233,18 @@ const (
 	HarmBlockNone HarmBlockThreshold = 4
 )
 
-// helper to inspect incoming client options for auth options.
-func hasAuthOptions(opts []option.ClientOption) bool {
-	for _, opt := range opts {
-		v := reflect.ValueOf(opt)
-		ts := v.Type().String()
-
-		switch ts {
-		case "option.withAPIKey":
-			return v.String() != ""
-
-		case "option.withTokenSource",
-			"option.withCredentialsFile",
-			"option.withCredentialsJSON":
-			return true
-		}
+// toGenAIHarmBlockThreshold converts HarmBlockThreshold to genai.HarmBlockThreshold.
+func (h HarmBlockThreshold) toGenAIHarmBlockThreshold() genai.HarmBlockThreshold {
+	switch h {
+	case HarmBlockLowAndAbove:
+		return genai.HarmBlockThresholdBlockLowAndAbove
+	case HarmBlockMediumAndAbove:
+		return genai.HarmBlockThresholdBlockMediumAndAbove
+	case HarmBlockOnlyHigh:
+		return genai.HarmBlockThresholdBlockOnlyHigh
+	case HarmBlockNone:
+		return genai.HarmBlockThresholdBlockNone
+	default:
+		return genai.HarmBlockThresholdUnspecified
 	}
-	return false
 }

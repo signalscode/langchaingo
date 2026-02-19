@@ -1,12 +1,13 @@
 package googleai
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"testing"
 
-	"github.com/google/generative-ai-go/genai"
 	"github.com/stretchr/testify/assert"
 	"github.com/tmc/langchaingo/llms"
+	"google.golang.org/genai"
 )
 
 func TestConvertParts(t *testing.T) { //nolint:funlen // comprehensive test
@@ -30,7 +31,7 @@ func TestConvertParts(t *testing.T) { //nolint:funlen // comprehensive test
 				llms.TextContent{Text: "Hello world"},
 			},
 			wantErr:   false,
-			wantTypes: []string{"genai.Text"},
+			wantTypes: []string{"text"},
 		},
 		{
 			name: "binary content",
@@ -41,7 +42,7 @@ func TestConvertParts(t *testing.T) { //nolint:funlen // comprehensive test
 				},
 			},
 			wantErr:   false,
-			wantTypes: []string{"genai.Blob"},
+			wantTypes: []string{"inlineData"},
 		},
 		{
 			name: "tool call",
@@ -54,7 +55,7 @@ func TestConvertParts(t *testing.T) { //nolint:funlen // comprehensive test
 				},
 			},
 			wantErr:   false,
-			wantTypes: []string{"genai.FunctionCall"},
+			wantTypes: []string{"functionCall"},
 		},
 		{
 			name: "tool call response",
@@ -65,7 +66,7 @@ func TestConvertParts(t *testing.T) { //nolint:funlen // comprehensive test
 				},
 			},
 			wantErr:   false,
-			wantTypes: []string{"genai.FunctionResponse"},
+			wantTypes: []string{"functionResponse"},
 		},
 		{
 			name: "tool call with invalid JSON",
@@ -87,7 +88,18 @@ func TestConvertParts(t *testing.T) { //nolint:funlen // comprehensive test
 				llms.TextContent{Text: "World"},
 			},
 			wantErr:   false,
-			wantTypes: []string{"genai.Text", "genai.Blob", "genai.Text"},
+			wantTypes: []string{"text", "inlineData", "text"},
+		},
+		{
+			name: "thought content",
+			parts: []llms.ContentPart{
+				llms.ThoughtContent{
+					Text:      "Let me think about this...",
+					Signature: base64.StdEncoding.EncodeToString([]byte("signature-bytes")),
+				},
+			},
+			wantErr:   false,
+			wantTypes: []string{"thought"},
 		},
 	}
 
@@ -104,15 +116,20 @@ func TestConvertParts(t *testing.T) { //nolint:funlen // comprehensive test
 			assert.Len(t, result, len(tt.wantTypes))
 
 			for i, expectedType := range tt.wantTypes {
+				part := result[i]
 				switch expectedType {
-				case "genai.Text":
-					assert.IsType(t, genai.Text(""), result[i])
-				case "genai.Blob":
-					assert.IsType(t, genai.Blob{}, result[i])
-				case "genai.FunctionCall":
-					assert.IsType(t, genai.FunctionCall{}, result[i])
-				case "genai.FunctionResponse":
-					assert.IsType(t, genai.FunctionResponse{}, result[i])
+				case "text":
+					assert.NotEmpty(t, part.Text)
+					assert.False(t, part.Thought)
+				case "inlineData":
+					assert.NotNil(t, part.InlineData)
+				case "functionCall":
+					assert.NotNil(t, part.FunctionCall)
+				case "functionResponse":
+					assert.NotNil(t, part.FunctionResponse)
+				case "thought":
+					assert.True(t, part.Thought)
+					assert.NotEmpty(t, part.ThoughtSignature)
 				}
 			}
 		})
@@ -238,7 +255,7 @@ func TestConvertCandidates(t *testing.T) { //nolint:funlen // comprehensive test
 	tests := []struct {
 		name        string
 		candidates  []*genai.Candidate
-		usage       *genai.UsageMetadata
+		usage       *genai.GenerateContentResponseUsageMetadata
 		wantErr     bool
 		wantChoices int
 	}{
@@ -253,8 +270,8 @@ func TestConvertCandidates(t *testing.T) { //nolint:funlen // comprehensive test
 			candidates: []*genai.Candidate{
 				{
 					Content: &genai.Content{
-						Parts: []genai.Part{
-							genai.Text("Hello world"),
+						Parts: []*genai.Part{
+							{Text: "Hello world"},
 						},
 					},
 					FinishReason: genai.FinishReasonStop,
@@ -268,10 +285,12 @@ func TestConvertCandidates(t *testing.T) { //nolint:funlen // comprehensive test
 			candidates: []*genai.Candidate{
 				{
 					Content: &genai.Content{
-						Parts: []genai.Part{
-							genai.FunctionCall{
-								Name: "get_weather",
-								Args: map[string]any{"location": "Paris"},
+						Parts: []*genai.Part{
+							{
+								FunctionCall: &genai.FunctionCall{
+									Name: "get_weather",
+									Args: map[string]any{"location": "Paris"},
+								},
 							},
 						},
 					},
@@ -286,17 +305,37 @@ func TestConvertCandidates(t *testing.T) { //nolint:funlen // comprehensive test
 			candidates: []*genai.Candidate{
 				{
 					Content: &genai.Content{
-						Parts: []genai.Part{
-							genai.Text("Response with usage"),
+						Parts: []*genai.Part{
+							{Text: "Response with usage"},
 						},
 					},
 					FinishReason: genai.FinishReasonStop,
 				},
 			},
-			usage: &genai.UsageMetadata{
+			usage: &genai.GenerateContentResponseUsageMetadata{
 				PromptTokenCount:     10,
 				CandidatesTokenCount: 5,
 				TotalTokenCount:      15,
+			},
+			wantErr:     false,
+			wantChoices: 1,
+		},
+		{
+			name: "candidate with thought content",
+			candidates: []*genai.Candidate{
+				{
+					Content: &genai.Content{
+						Parts: []*genai.Part{
+							{
+								Text:             "Let me think...",
+								Thought:          true,
+								ThoughtSignature: []byte("signature"),
+							},
+							{Text: "The answer is 42"},
+						},
+					},
+					FinishReason: genai.FinishReasonStop,
+				},
 			},
 			wantErr:     false,
 			wantChoices: 1,
@@ -306,36 +345,19 @@ func TestConvertCandidates(t *testing.T) { //nolint:funlen // comprehensive test
 			candidates: []*genai.Candidate{
 				{
 					Content: &genai.Content{
-						Parts: []genai.Part{genai.Text("First response")},
+						Parts: []*genai.Part{{Text: "First response"}},
 					},
 					FinishReason: genai.FinishReasonStop,
 				},
 				{
 					Content: &genai.Content{
-						Parts: []genai.Part{genai.Text("Second response")},
+						Parts: []*genai.Part{{Text: "Second response"}},
 					},
 					FinishReason: genai.FinishReasonStop,
 				},
 			},
 			wantErr:     false,
 			wantChoices: 2,
-		},
-		{
-			name: "candidate with unknown part type",
-			candidates: []*genai.Candidate{
-				{
-					Content: &genai.Content{
-						Parts: []genai.Part{
-							// This would be an unknown part type in practice
-							// but we can't easily create one for testing
-							genai.Text("Known type for now"),
-						},
-					},
-					FinishReason: genai.FinishReasonStop,
-				},
-			},
-			wantErr:     false,
-			wantChoices: 1,
 		},
 	}
 
@@ -369,6 +391,70 @@ func TestConvertCandidates(t *testing.T) { //nolint:funlen // comprehensive test
 	}
 }
 
+func TestThoughtContentHandling(t *testing.T) {
+	t.Parallel()
+
+	t.Run("thought content is extracted separately", func(t *testing.T) {
+		candidates := []*genai.Candidate{
+			{
+				Content: &genai.Content{
+					Parts: []*genai.Part{
+						{
+							Text:             "Let me analyze this step by step...",
+							Thought:          true,
+							ThoughtSignature: []byte("thought-sig-1"),
+						},
+						{Text: "The final answer is 42"},
+					},
+				},
+				FinishReason: genai.FinishReasonStop,
+			},
+		}
+
+		result, err := convertCandidates(candidates, nil)
+		assert.NoError(t, err)
+		assert.Len(t, result.Choices, 1)
+
+		choice := result.Choices[0]
+		// Main content should only have the non-thought text
+		assert.Equal(t, "The final answer is 42", choice.Content)
+
+		// Thought parts should be captured
+		assert.Len(t, choice.ThoughtParts, 1)
+		assert.Equal(t, "Let me analyze this step by step...", choice.ThoughtParts[0].Text)
+		assert.Equal(t, "thought-sig-1", choice.ThoughtParts[0].Signature)
+
+		// Reasoning content should be populated
+		assert.Equal(t, "Let me analyze this step by step...", choice.ReasoningContent)
+	})
+
+	t.Run("thought content can be passed back", func(t *testing.T) {
+		sig := base64.StdEncoding.EncodeToString([]byte("prev-sig"))
+		parts := []llms.ContentPart{
+			llms.ThoughtContent{
+				Text:      "Previous thought",
+				Signature: sig,
+			},
+			llms.TextContent{Text: "Continue from here"},
+		}
+
+		result, err := convertParts(parts)
+		assert.NoError(t, err)
+		assert.Len(t, result, 2)
+
+		// First part should be a thought
+		assert.True(t, result[0].Thought)
+		assert.Equal(t, "Previous thought", result[0].Text)
+		sig2 := base64.StdEncoding.EncodeToString(result[0].ThoughtSignature)
+		assert.NoError(t, err)
+		assert.Equal(t, sig, sig2)
+
+		// Second part should be regular text
+		assert.False(t, result[1].Thought)
+		assert.Equal(t, "Continue from here", result[1].Text)
+	})
+}
+
 func TestCall(t *testing.T) {
 	t.Parallel()
 
@@ -393,11 +479,7 @@ func TestGenerateContentOptionsHandling(t *testing.T) {
 			ResponseMIMEType: "text/plain",
 		}
 
-		// The validation would happen in GenerateContent:
-		// if opts.ResponseMIMEType != "" && opts.JSONMode {
-		//     return nil, fmt.Errorf("conflicting options, can't use JSONMode and ResponseMIMEType together")
-		// }
-
+		// Now JSONMode takes precedence instead of returning an error
 		hasConflict := opts.ResponseMIMEType != "" && opts.JSONMode
 		assert.True(t, hasConflict, "Should detect conflicting options")
 	})
@@ -407,7 +489,7 @@ func TestGenerateContentOptionsHandling(t *testing.T) {
 			JSONMode: true,
 		}
 
-		// The logic would set: model.ResponseMIMEType = ResponseMIMETypeJson
+		// The logic would set: config.ResponseMIMEType = ResponseMIMETypeJson
 		expectedMIMEType := ResponseMIMETypeJson
 		if opts.JSONMode && opts.ResponseMIMEType == "" {
 			assert.Equal(t, "application/json", expectedMIMEType)
@@ -419,7 +501,7 @@ func TestGenerateContentOptionsHandling(t *testing.T) {
 			ResponseMIMEType: "text/xml",
 		}
 
-		// The logic would set: model.ResponseMIMEType = opts.ResponseMIMEType
+		// The logic would set: config.ResponseMIMEType = opts.ResponseMIMEType
 		if opts.ResponseMIMEType != "" && !opts.JSONMode {
 			assert.Equal(t, "text/xml", opts.ResponseMIMEType)
 		}
@@ -485,11 +567,10 @@ func TestFunctionCallConversion(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Len(t, result, 1)
 
-		funcCall, ok := result[0].(genai.FunctionCall)
-		assert.True(t, ok)
-		assert.Equal(t, "get_weather", funcCall.Name)
-		assert.Equal(t, "Paris", funcCall.Args["location"])
-		assert.Equal(t, "celsius", funcCall.Args["unit"])
+		assert.NotNil(t, result[0].FunctionCall)
+		assert.Equal(t, "get_weather", result[0].FunctionCall.Name)
+		assert.Equal(t, "Paris", result[0].FunctionCall.Args["location"])
+		assert.Equal(t, "celsius", result[0].FunctionCall.Args["unit"])
 	})
 
 	t.Run("function response", func(t *testing.T) {
@@ -502,10 +583,9 @@ func TestFunctionCallConversion(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Len(t, result, 1)
 
-		funcResp, ok := result[0].(genai.FunctionResponse)
-		assert.True(t, ok)
-		assert.Equal(t, "get_weather", funcResp.Name)
-		assert.Equal(t, "It's 20°C and sunny", funcResp.Response["response"])
+		assert.NotNil(t, result[0].FunctionResponse)
+		assert.Equal(t, "get_weather", result[0].FunctionResponse.Name)
+		assert.Equal(t, "It's 20°C and sunny", result[0].FunctionResponse.Response["response"])
 	})
 }
 
@@ -520,14 +600,14 @@ func TestSafetySettings(t *testing.T) {
 		genai.HarmCategorySexuallyExplicit,
 	}
 
-	// This would be the safety settings logic from GenerateContent
+	// This would be the safety settings logic from buildGenerateContentConfig
 	harmThreshold := HarmBlockOnlyHigh
 
 	safetySettings := []*genai.SafetySetting{}
 	for _, category := range expectedCategories {
 		safetySettings = append(safetySettings, &genai.SafetySetting{
 			Category:  category,
-			Threshold: genai.HarmBlockThreshold(harmThreshold),
+			Threshold: harmThreshold.toGenAIHarmBlockThreshold(),
 		})
 	}
 
@@ -535,6 +615,28 @@ func TestSafetySettings(t *testing.T) {
 
 	for i, setting := range safetySettings {
 		assert.Equal(t, expectedCategories[i], setting.Category)
-		assert.Equal(t, genai.HarmBlockThreshold(harmThreshold), setting.Threshold)
+		assert.Equal(t, genai.HarmBlockThresholdBlockOnlyHigh, setting.Threshold)
+	}
+}
+
+func TestHarmBlockThresholdConversion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input    HarmBlockThreshold
+		expected genai.HarmBlockThreshold
+	}{
+		{HarmBlockUnspecified, genai.HarmBlockThresholdUnspecified},
+		{HarmBlockLowAndAbove, genai.HarmBlockThresholdBlockLowAndAbove},
+		{HarmBlockMediumAndAbove, genai.HarmBlockThresholdBlockMediumAndAbove},
+		{HarmBlockOnlyHigh, genai.HarmBlockThresholdBlockOnlyHigh},
+		{HarmBlockNone, genai.HarmBlockThresholdBlockNone},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.expected), func(t *testing.T) {
+			result := tt.input.toGenAIHarmBlockThreshold()
+			assert.Equal(t, tt.expected, result)
+		})
 	}
 }

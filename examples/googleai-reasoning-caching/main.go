@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/generative-ai-go/genai"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/googleai"
+	"google.golang.org/genai"
 )
 
 func main() {
@@ -85,6 +85,14 @@ func demonstrateReasoning(ctx context.Context, apiKey string) {
 				fmt.Printf("\nTotal tokens used: %d\n", tokens)
 			}
 		}
+
+		// Show thought parts if any (for Gemini 3+ models)
+		if len(resp.Choices[0].ThoughtParts) > 0 {
+			fmt.Println("\nThought process:")
+			for _, thought := range resp.Choices[0].ThoughtParts {
+				fmt.Printf("  %s\n", thought.Text)
+			}
+		}
 	}
 }
 
@@ -96,7 +104,9 @@ func demonstrateCaching(ctx context.Context, apiKey string) {
 
 	helper := setupCachingHelper(ctx, apiKey)
 	cached := createCachedContent(ctx, helper)
-	runCachedRequests(ctx, apiKey, cached.Name)
+	if cached != nil {
+		runCachedRequests(ctx, apiKey, cached.Name)
+	}
 }
 
 func setupCachingHelper(ctx context.Context, apiKey string) *googleai.CachingHelper {
@@ -141,7 +151,9 @@ func createCachedContent(ctx context.Context, helper *googleai.CachingHelper) *g
 	}()
 
 	fmt.Printf("Cached content created: %s\n", cached.Name)
-	fmt.Printf("Token count: %d\n", cached.UsageMetadata.TotalTokenCount)
+	if cached.UsageMetadata != nil {
+		fmt.Printf("Token count: %d\n", cached.UsageMetadata.TotalTokenCount)
+	}
 	return cached
 }
 

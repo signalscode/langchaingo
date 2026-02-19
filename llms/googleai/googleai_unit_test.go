@@ -2,10 +2,12 @@ package googleai
 
 import (
 	"context"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/tmc/langchaingo/llms"
+	"google.golang.org/genai"
 )
 
 func TestNew(t *testing.T) {
@@ -48,11 +50,11 @@ func TestNew(t *testing.T) {
 		{
 			name: "success with cloud options",
 			opts: []Option{
-				WithAPIKey("test-api-key"),
+				// Note: Cloud project and API key are mutually exclusive in the new SDK
 				WithCloudProject("test-project"),
 				WithCloudLocation("us-central1"),
 			},
-			wantErr: false,
+			wantErr: true, // Cloud project requires VertexAI backend, not API key
 		},
 		{
 			name: "success with embedding model",
@@ -87,7 +89,7 @@ func TestDefaultOptions(t *testing.T) {
 	opts := DefaultOptions()
 
 	assert.Equal(t, "gemini-2.0-flash", opts.DefaultModel)
-	assert.Equal(t, "embedding-001", opts.DefaultEmbeddingModel)
+	assert.Equal(t, "text-embedding-004", opts.DefaultEmbeddingModel)
 	assert.Equal(t, 1, opts.DefaultCandidateCount)
 	assert.Equal(t, 2048, opts.DefaultMaxTokens)
 	assert.Equal(t, 0.5, opts.DefaultTemperature)
@@ -96,52 +98,29 @@ func TestDefaultOptions(t *testing.T) {
 	assert.Equal(t, HarmBlockOnlyHigh, opts.HarmThreshold)
 	assert.Empty(t, opts.CloudProject)
 	assert.Empty(t, opts.CloudLocation)
+	assert.Equal(t, genai.BackendGeminiAPI, opts.Backend)
 }
 
-func TestOptions(t *testing.T) { //nolint:funlen // comprehensive test //nolint:funlen // comprehensive test
+func TestOptions(t *testing.T) { //nolint:funlen // comprehensive test
 	t.Parallel()
 
 	t.Run("WithAPIKey", func(t *testing.T) {
 		opts := &Options{}
 		WithAPIKey("test-key")(opts)
-		assert.Len(t, opts.ClientOptions, 1)
-	})
-
-	t.Run("WithCredentialsJSON", func(t *testing.T) {
-		opts := &Options{}
-		creds := []byte(`{"type":"service_account"}`)
-		WithCredentialsJSON(creds)(opts)
-		assert.Len(t, opts.ClientOptions, 1)
-	})
-
-	t.Run("WithCredentialsJSON empty", func(t *testing.T) {
-		opts := &Options{}
-		WithCredentialsJSON(nil)(opts)
-		assert.Len(t, opts.ClientOptions, 0)
-	})
-
-	t.Run("WithCredentialsFile", func(t *testing.T) {
-		opts := &Options{}
-		WithCredentialsFile("path/to/file.json")(opts)
-		assert.Len(t, opts.ClientOptions, 1)
-	})
-
-	t.Run("WithCredentialsFile empty", func(t *testing.T) {
-		opts := &Options{}
-		WithCredentialsFile("")(opts)
-		assert.Len(t, opts.ClientOptions, 0)
-	})
-
-	t.Run("WithRest", func(t *testing.T) {
-		opts := &Options{}
-		WithRest()(opts)
-		assert.Len(t, opts.ClientOptions, 1)
+		assert.Equal(t, "test-key", opts.APIKey)
 	})
 
 	t.Run("WithHTTPClient", func(t *testing.T) {
 		opts := &Options{}
-		WithHTTPClient(nil)(opts)
-		assert.Len(t, opts.ClientOptions, 1)
+		httpClient := &http.Client{}
+		WithHTTPClient(httpClient)(opts)
+		assert.Equal(t, httpClient, opts.HTTPClient)
+	})
+
+	t.Run("WithBackend", func(t *testing.T) {
+		opts := &Options{}
+		WithBackend(genai.BackendVertexAI)(opts)
+		assert.Equal(t, genai.BackendVertexAI, opts.Backend)
 	})
 
 	t.Run("WithCloudProject", func(t *testing.T) {
@@ -210,39 +189,36 @@ func TestEnsureAuthPresent(t *testing.T) {
 
 	t.Run("no auth options, no env var", func(t *testing.T) {
 		t.Setenv("GOOGLE_API_KEY", "")
+		t.Setenv("GEMINI_API_KEY", "")
 		opts := &Options{}
 		opts.EnsureAuthPresent()
-		assert.Len(t, opts.ClientOptions, 0)
+		assert.Empty(t, opts.APIKey)
 	})
 
-	t.Run("no auth options, with env var", func(t *testing.T) {
+	t.Run("no auth options, with GOOGLE_API_KEY", func(t *testing.T) {
 		t.Setenv("GOOGLE_API_KEY", "test-key-from-env")
+		t.Setenv("GEMINI_API_KEY", "")
 		opts := &Options{}
 		opts.EnsureAuthPresent()
-		assert.Len(t, opts.ClientOptions, 1)
+		assert.Equal(t, "test-key-from-env", opts.APIKey)
+	})
+
+	t.Run("no auth options, with GEMINI_API_KEY", func(t *testing.T) {
+		t.Setenv("GOOGLE_API_KEY", "")
+		t.Setenv("GEMINI_API_KEY", "gemini-key-from-env")
+		opts := &Options{}
+		opts.EnsureAuthPresent()
+		assert.Equal(t, "gemini-key-from-env", opts.APIKey)
 	})
 
 	t.Run("has auth options", func(t *testing.T) {
 		t.Setenv("GOOGLE_API_KEY", "test-key-from-env")
 		opts := &Options{}
 		WithAPIKey("existing-key")(opts)
-		initialLen := len(opts.ClientOptions)
 		opts.EnsureAuthPresent()
-		// Should not add another auth option
-		assert.Len(t, opts.ClientOptions, initialLen)
+		// Should not override existing key
+		assert.Equal(t, "existing-key", opts.APIKey)
 	})
-}
-
-func TestHasAuthOptions(t *testing.T) {
-	t.Parallel()
-
-	t.Run("no options", func(t *testing.T) {
-		assert.False(t, hasAuthOptions(nil))
-	})
-
-	// Note: Testing hasAuthOptions with actual options is complex due to the use of reflection
-	// and the private nature of the option types. The function is already tested indirectly
-	// through EnsureAuthPresent tests.
 }
 
 func TestHarmBlockThresholdConstants(t *testing.T) {
@@ -287,27 +263,27 @@ func TestConvertToolSchemaType(t *testing.T) {
 
 	tests := []struct {
 		input    string
-		expected string // We'll compare the string representation
+		expected genai.Type
 	}{
-		{"object", "TypeObject"},
-		{"string", "TypeString"},
-		{"number", "TypeNumber"},
-		{"integer", "TypeInteger"},
-		{"boolean", "TypeBoolean"},
-		{"array", "TypeArray"},
-		{"unknown", "TypeUnspecified"},
-		{"", "TypeUnspecified"},
+		{"object", genai.TypeObject},
+		{"string", genai.TypeString},
+		{"number", genai.TypeNumber},
+		{"integer", genai.TypeInteger},
+		{"boolean", genai.TypeBoolean},
+		{"array", genai.TypeArray},
+		{"unknown", genai.TypeUnspecified},
+		{"", genai.TypeUnspecified},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			result := convertToolSchemaType(tt.input)
-			assert.Equal(t, tt.expected, result.String())
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
 
-func TestConvertTools(t *testing.T) { //nolint:funlen // comprehensive test //nolint:funlen // comprehensive test
+func TestConvertTools(t *testing.T) { //nolint:funlen // comprehensive test
 	t.Parallel()
 
 	t.Run("empty tools", func(t *testing.T) {
