@@ -261,6 +261,10 @@ func (s Store) AddDocuments(
 		return nil, err
 	}
 
+	if len(vectors) != len(docs) {
+		return nil, ErrEmbedderWrongNumberVectors
+	}
+
 	filteredIndices := s.vectorDeduplicate(ctx, opts, vectors)
 
 	if len(filteredIndices) > 0 {
