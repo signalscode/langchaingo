@@ -266,38 +266,22 @@ func (s Store) AddDocuments(
 	}
 
 	filteredIndices := s.vectorDeduplicate(ctx, opts, vectors)
-
-	if len(filteredIndices) > 0 {
-		filteredMap := make(map[int]struct{}, len(filteredIndices))
-		for _, idx := range filteredIndices {
-			filteredMap[idx] = struct{}{}
-		}
-
-		filteredDocs := make([]schema.Document, 0, len(docs)-len(filteredIndices))
-		for i, doc := range docs {
-			if _, ok := filteredMap[i]; !ok {
-				filteredDocs = append(filteredDocs, doc)
-			}
-		}
-		docs = filteredDocs
-
-		filteredVectors := make([][]float32, 0, len(vectors)-len(filteredIndices))
-		for i, vec := range vectors {
-			if _, ok := filteredMap[i]; !ok {
-				filteredVectors = append(filteredVectors, vec)
-			}
-		}
-		vectors = filteredVectors
+	skipMap := make(map[int]struct{})
+	for _, idx := range filteredIndices {
+		skipMap[idx] = struct{}{}
 	}
 
 	b := &pgx.Batch{}
 	sql := fmt.Sprintf(`INSERT INTO %s (uuid, document, embedding, cmetadata, collection_id)
 		VALUES($1, $2, $3, $4, $5)`, s.embeddingTableName)
 
-	ids := make([]string, len(docs))
+	ids := make([]string, 0, len(docs)-len(skipMap))
 	for docIdx, doc := range docs {
+		if _, shouldSkip := skipMap[docIdx]; shouldSkip {
+			continue
+		}
 		id := uuid.New().String()
-		ids[docIdx] = id
+		ids = append(ids, id)
 		b.Queue(sql, id, doc.PageContent, pgvector.NewVector(vectors[docIdx]), doc.Metadata, s.collectionUUID)
 	}
 	return ids, s.conn.SendBatch(ctx, b).Close()
