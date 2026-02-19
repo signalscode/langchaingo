@@ -1,0 +1,33 @@
+name: CI Validation
+
+on:
+  pull_request:
+    branches:
+      - main
+      - dev
+  push:
+    branches:
+      - "!main"
+      - "!dev"
+    tags-ignore:
+      - "hotfix-v*.*.*-*"
+
+jobs:
+  compile-and-test:
+    runs-on: ubuntu-latest-8-cores
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v6
+      - name: prep golang
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.25"
+      - name: check for go-shared replace
+        run: |
+          if grep -q "^replace github.com/signalscode/go-shared =>" go.mod; then
+            echo "go-shared replace found"
+            exit 1
+          else
+            echo "go-shared replace not found"
+            exit 0
+          fi
