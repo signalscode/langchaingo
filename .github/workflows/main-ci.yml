@@ -31,3 +31,13 @@ jobs:
             echo "go-shared replace not found"
             exit 0
           fi
+      - name: vet
+        id: changed
+        shell: bash
+        run: |
+          # ./vet.sh consider enabling this in the future for faster vetting
+          go vet $(go list ./... | grep -v /vendor/ | grep -v mocks | grep -v templates)
+      - name: test
+        shell: bash
+        run: |
+          go test ./...
