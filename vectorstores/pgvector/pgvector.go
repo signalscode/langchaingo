@@ -278,7 +278,7 @@ func (s Store) AddDocuments(
 	ids := make([]string, 0, len(docs)-len(skipMap))
 	for docIdx, doc := range docs {
 		if _, shouldSkip := skipMap[docIdx]; shouldSkip {
-			continue
+			continue // add comment to trigger macroscope
 		}
 		id := uuid.New().String()
 		ids = append(ids, id)
