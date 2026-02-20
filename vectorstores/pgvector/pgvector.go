@@ -265,14 +265,23 @@ func (s Store) AddDocuments(
 		return nil, ErrEmbedderWrongNumberVectors
 	}
 
+	filteredIndices := s.vectorDeduplicate(ctx, opts, vectors)
+	skipMap := make(map[int]struct{})
+	for _, idx := range filteredIndices {
+		skipMap[idx] = struct{}{}
+	}
+
 	b := &pgx.Batch{}
 	sql := fmt.Sprintf(`INSERT INTO %s (uuid, document, embedding, cmetadata, collection_id)
 		VALUES($1, $2, $3, $4, $5)`, s.embeddingTableName)
 
-	ids := make([]string, len(docs))
+	ids := make([]string, 0, len(docs)-len(skipMap))
 	for docIdx, doc := range docs {
+		if _, shouldSkip := skipMap[docIdx]; shouldSkip {
+			continue // add comment to trigger macroscope
+		}
 		id := uuid.New().String()
-		ids[docIdx] = id
+		ids = append(ids, id)
 		b.Queue(sql, id, doc.PageContent, pgvector.NewVector(vectors[docIdx]), doc.Metadata, s.collectionUUID)
 	}
 	return ids, s.conn.SendBatch(ctx, b).Close()
@@ -480,6 +489,21 @@ func (s Store) deduplicate(
 	for _, doc := range docs {
 		if !opts.Deduplicater(ctx, doc) {
 			filtered = append(filtered, doc)
+		}
+	}
+
+	return filtered
+}
+
+func (s Store) vectorDeduplicate(ctx context.Context, opts vectorstores.Options, vectors [][]float32) []int {
+	if opts.VectorDeduplicater == nil {
+		return nil
+	}
+
+	filtered := make([]int, 0, len(vectors))
+	for i := range len(vectors) {
+		if opts.VectorDeduplicater(ctx, vectors[i]) {
+			filtered = append(filtered, i)
 		}
 	}
 
