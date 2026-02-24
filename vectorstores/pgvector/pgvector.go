@@ -217,6 +217,10 @@ func (s Store) createEmbeddingTableIfNotExists(ctx context.Context, tx pgx.Tx) e
 	if _, err := tx.Exec(ctx, sql); err != nil {
 		return err
 	}
+	sql = fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_document_hash ON %s (document_hash)`, s.embeddingTableName, s.embeddingTableName)
+	if _, err := tx.Exec(ctx, sql); err != nil {
+		return err
+	}
 
 	// See this for more details on HNWS indexes: https://github.com/pgvector/pgvector#hnsw
 	if s.hnswIndex != nil {
