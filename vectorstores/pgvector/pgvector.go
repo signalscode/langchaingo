@@ -206,6 +206,7 @@ func (s Store) createEmbeddingTableIfNotExists(ctx context.Context, tx pgx.Tx) e
 	document varchar,
 	cmetadata json,
 	"uuid" uuid NOT NULL,
+	document_hash bytea,
 	CONSTRAINT langchain_pg_embedding_collection_id_fkey
 	FOREIGN KEY (collection_id) REFERENCES %s (uuid) ON DELETE CASCADE,
 	PRIMARY KEY (uuid))`, s.embeddingTableName, vectorDimensions, s.collectionTableName)
