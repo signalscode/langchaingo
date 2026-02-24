@@ -16,8 +16,8 @@ type Options struct {
 	ScoreThreshold     float32
 	Filters            any
 	Embedder           embeddings.Embedder
-	Deduplicater       func(context.Context, schema.Document) bool
-	VectorDeduplicater func(context.Context, []float32) bool // returns true if the vector should be deduplicated
+	Deduplicater       func(context.Context, schema.Document) bool // returns true if the document should be deduplicated
+	VectorDeduplicater func(context.Context, []float32) bool       // returns true if the vector should be deduplicated
 }
 
 // WithNameSpace returns an Option for setting the name space.
