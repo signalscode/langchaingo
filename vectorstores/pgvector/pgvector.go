@@ -2,6 +2,7 @@ package pgvector
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -272,8 +273,8 @@ func (s Store) AddDocuments(
 	}
 
 	b := &pgx.Batch{}
-	sql := fmt.Sprintf(`INSERT INTO %s (uuid, document, embedding, cmetadata, collection_id)
-		VALUES($1, $2, $3, $4, $5)`, s.embeddingTableName)
+	sql := fmt.Sprintf(`INSERT INTO %s (uuid, document, embedding, cmetadata, collection_id, document_hash)
+		VALUES($1, $2, $3, $4, $5, $6)`, s.embeddingTableName)
 
 	ids := make([]string, 0, len(docs)-len(skipMap))
 	for docIdx, doc := range docs {
@@ -282,7 +283,8 @@ func (s Store) AddDocuments(
 		}
 		id := uuid.New().String()
 		ids = append(ids, id)
-		b.Queue(sql, id, doc.PageContent, pgvector.NewVector(vectors[docIdx]), doc.Metadata, s.collectionUUID)
+		hash := sha256.Sum256([]byte(doc.PageContent))
+		b.Queue(sql, id, doc.PageContent, pgvector.NewVector(vectors[docIdx]), doc.Metadata, s.collectionUUID, hash[:])
 	}
 	return ids, s.conn.SendBatch(ctx, b).Close()
 }
