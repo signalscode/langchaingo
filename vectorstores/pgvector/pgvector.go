@@ -64,6 +64,7 @@ type Store struct {
 	preDeleteCollection bool
 	vectorDimensions    int
 	hnswIndex           *HNSWIndex
+	ginIndex            bool
 	tryCreateExtention  bool
 	usePGAdvisoryLocks  bool
 }
@@ -207,6 +208,7 @@ func (s Store) createEmbeddingTableIfNotExists(ctx context.Context, tx pgx.Tx) e
 	cmetadata json,
 	"uuid" uuid NOT NULL,
 	document_hash bytea,
+	document_tsv tsvector GENERATED ALWAYS AS (to_tsvector('english', COALESCE(document, ''))) STORED,
 	CONSTRAINT langchain_pg_embedding_collection_id_fkey
 	FOREIGN KEY (collection_id) REFERENCES %s (uuid) ON DELETE CASCADE,
 	PRIMARY KEY (uuid))`, s.embeddingTableName, vectorDimensions, s.collectionTableName)
@@ -233,6 +235,12 @@ func (s Store) createEmbeddingTableIfNotExists(ctx context.Context, tx pgx.Tx) e
 		}
 		if _, err := tx.Exec(ctx, sql); err != nil {
 			return err
+		}
+	}
+	if s.ginIndex {
+		sql = fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_document_tsv_gin ON %s USING gin (document_tsv)`, s.embeddingTableName, s.embeddingTableName)
+		if _, err := tx.Exec(ctx, sql); err != nil {
+			return fmt.Errorf("failed to create gin index: %w", err)
 		}
 	}
 
