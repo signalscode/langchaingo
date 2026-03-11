@@ -14,6 +14,7 @@ const (
 	DefaultCollectionStoreTableName = "langchain_pg_collection"
 	DefaultTryCreateExtention       = false
 	DefaultUsePGAdvisoryLocks       = false
+	DefaultGinIndex                 = false
 )
 
 // ErrInvalidOptions is returned when the options given are invalid.
@@ -118,6 +119,13 @@ func WithHNSWIndex(m int, efConstruction int, distanceFunction string) Option {
 	}
 }
 
+// WithGinIndex is an option for specifying if the Gin index should be created.
+func WithGinIndex(ginIndex bool) Option {
+	return func(p *Store) {
+		p.ginIndex = ginIndex
+	}
+}
+
 func applyClientOptions(opts ...Option) (Store, error) {
 	o := &Store{
 		collectionName:      DefaultCollectionName,
@@ -126,6 +134,7 @@ func applyClientOptions(opts ...Option) (Store, error) {
 		collectionTableName: DefaultCollectionStoreTableName,
 		tryCreateExtention:  DefaultTryCreateExtention,
 		usePGAdvisoryLocks:  DefaultUsePGAdvisoryLocks,
+		ginIndex:            DefaultGinIndex,
 	}
 
 	for _, opt := range opts {
