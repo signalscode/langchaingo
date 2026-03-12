@@ -23,6 +23,12 @@ var ErrInvalidOptions = errors.New("invalid options")
 // Option is a function type that can be used to modify the client.
 type Option func(p *Store)
 
+func WithSkipInit(skip bool) Option {
+	return func(p *Store) {
+		p.skipInit = skip
+	}
+}
+
 // WithTryCreateExtention is an option for specifying if the extension should be created if it does not exist.
 func WithTryCreateExtention(tryCreateExtention bool) Option {
 	return func(p *Store) {
