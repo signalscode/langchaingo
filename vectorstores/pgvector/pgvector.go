@@ -53,6 +53,7 @@ type CloseNoErr interface {
 
 // Store is a wrapper around the pgvector client.
 type Store struct {
+	skipInit            bool
 	embedder            embeddings.Embedder
 	connURL             string
 	conn                PGXConn
@@ -115,14 +116,16 @@ func (s *Store) init(ctx context.Context) error {
 		return err
 	}
 
-	if err := s.createVectorExtensionIfNotExists(ctx, tx); err != nil {
-		return err
-	}
-	if err := s.createCollectionTableIfNotExists(ctx, tx); err != nil {
-		return err
-	}
-	if err := s.createEmbeddingTableIfNotExists(ctx, tx); err != nil {
-		return err
+	if !s.skipInit {
+		if err := s.createVectorExtensionIfNotExists(ctx, tx); err != nil {
+			return err
+		}
+		if err := s.createCollectionTableIfNotExists(ctx, tx); err != nil {
+			return err
+		}
+		if err := s.createEmbeddingTableIfNotExists(ctx, tx); err != nil {
+			return err
+		}
 	}
 	if s.preDeleteCollection {
 		if err := s.RemoveCollection(ctx, tx); err != nil {
