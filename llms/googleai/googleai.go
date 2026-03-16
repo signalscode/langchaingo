@@ -351,7 +351,7 @@ func convertCandidates(candidates []*genai.Candidate, usage *genai.GenerateConte
 				if part.Thought {
 					thoughtContent := llms.ThoughtContent{
 						Text:      part.Text,
-						Signature: string(part.ThoughtSignature),
+						Signature: base64.StdEncoding.EncodeToString(part.ThoughtSignature),
 					}
 					thoughtParts = append(thoughtParts, thoughtContent)
 					continue
