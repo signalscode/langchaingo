@@ -144,6 +144,21 @@ func TestSliceRecorder_concurrentRecord(t *testing.T) {
 	require.Len(t, sr.Events, 100)
 }
 
+func TestSliceRecorder_Reset(t *testing.T) {
+	t.Parallel()
+	var sr SliceRecorder
+	ctx := context.Background()
+	sr.Record(ctx, SpanEvent{Name: "a", Op: SpanOpInstant})
+	require.Len(t, sr.Events, 1)
+	capBefore := cap(sr.Events)
+	sr.Reset()
+	require.Empty(t, sr.Events)
+	require.Equal(t, capBefore, cap(sr.Events))
+	sr.Record(ctx, SpanEvent{Name: "b", Op: SpanOpInstant})
+	require.Len(t, sr.Events, 1)
+	require.Equal(t, "b", sr.Events[0].Name)
+}
+
 // chainHookCounter stands in for a logging or tracing handler that only cares about chain hooks.
 type chainHookCounter struct {
 	SimpleHandler

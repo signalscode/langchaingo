@@ -61,3 +61,11 @@ func (s *SliceRecorder) Record(_ context.Context, e SpanEvent) {
 	defer s.mu.Unlock()
 	s.Events = append(s.Events, e)
 }
+
+// Reset clears recorded events without reallocating the backing array. It is safe to call
+// concurrently with [SliceRecorder.Record].
+func (s *SliceRecorder) Reset() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Events = s.Events[:0]
+}
