@@ -42,7 +42,7 @@ func Call(ctx context.Context, c Chain, inputValues map[string]any, options ...C
 		fullValues[key] = value
 	}
 
-	callbacksHandler := getChainCallbackHandler(c)
+	callbacksHandler := getChainCallbackHandler(ctx, c)
 	if callbacksHandler != nil {
 		callbacksHandler.HandleChainStart(ctx, inputValues)
 	}
@@ -252,9 +252,10 @@ func validateOutputs(c Chain, outputValues map[string]any) error {
 	return nil
 }
 
-func getChainCallbackHandler(c Chain) callbacks.Handler {
+func getChainCallbackHandler(ctx context.Context, c Chain) callbacks.Handler {
+	var field callbacks.Handler
 	if handlerHaver, ok := c.(callbacks.HandlerHaver); ok {
-		return handlerHaver.GetCallbackHandler()
+		field = handlerHaver.GetCallbackHandler()
 	}
-	return nil
+	return callbacks.EffectiveHandler(ctx, field)
 }

@@ -63,8 +63,8 @@ func (e *Executor) Call(ctx context.Context, inputValues map[string]any, options
 		}
 	}
 
-	if e.CallbacksHandler != nil {
-		e.CallbacksHandler.HandleAgentFinish(ctx, schema.AgentFinish{
+	if h := callbacks.EffectiveHandler(ctx, e.CallbacksHandler); h != nil {
+		h.HandleAgentFinish(ctx, schema.AgentFinish{
 			ReturnValues: map[string]any{"output": ErrNotFinished.Error()},
 		})
 	}
@@ -101,8 +101,8 @@ func (e *Executor) doIteration( // nolint
 	}
 
 	if finish != nil {
-		if e.CallbacksHandler != nil {
-			e.CallbacksHandler.HandleAgentFinish(ctx, *finish)
+		if h := callbacks.EffectiveHandler(ctx, e.CallbacksHandler); h != nil {
+			h.HandleAgentFinish(ctx, *finish)
 		}
 		return steps, e.getReturn(finish, steps), nil
 	}
@@ -123,8 +123,9 @@ func (e *Executor) doAction(
 	nameToTool map[string]tools.Tool,
 	action schema.AgentAction,
 ) ([]schema.AgentStep, error) {
-	if e.CallbacksHandler != nil {
-		e.CallbacksHandler.HandleAgentAction(ctx, action)
+	h := callbacks.EffectiveHandler(ctx, e.CallbacksHandler)
+	if h != nil {
+		h.HandleAgentAction(ctx, action)
 	}
 
 	tool, ok := nameToTool[strings.ToUpper(action.Tool)]
@@ -134,19 +135,19 @@ func (e *Executor) doAction(
 			Observation: fmt.Sprintf("%s is not a valid tool, try another one", action.Tool),
 		}), nil
 	}
-	if e.CallbacksHandler != nil {
-		e.CallbacksHandler.HandleToolStart(ctx, fmt.Sprintf("%s::(%s)", action.Tool, action.ToolInput))
+	if h != nil {
+		h.HandleToolStart(ctx, fmt.Sprintf("%s::(%s)", action.Tool, action.ToolInput))
 	}
 
 	observation, err := tool.Call(ctx, strings.TrimSuffix(action.ToolInput, "\nObservation:"))
 	if err != nil {
-		if e.CallbacksHandler != nil {
-			e.CallbacksHandler.HandleToolError(ctx, err)
+		if h != nil {
+			h.HandleToolError(ctx, err)
 		}
 		return nil, err
 	}
-	if e.CallbacksHandler != nil {
-		e.CallbacksHandler.HandleToolEnd(ctx, observation)
+	if h != nil {
+		h.HandleToolEnd(ctx, observation)
 	}
 
 	return append(steps, schema.AgentStep{

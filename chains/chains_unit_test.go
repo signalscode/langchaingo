@@ -180,10 +180,21 @@ func TestValidateOutputs(t *testing.T) {
 func TestGetChainCallbackHandler(t *testing.T) {
 	t.Parallel()
 
+	ctx := context.Background()
+
 	t.Run("chain without callback handler", func(t *testing.T) {
 		chain := &mockChain{}
-		handler := getChainCallbackHandler(chain)
+		handler := getChainCallbackHandler(ctx, chain)
 		assert.Nil(t, handler)
+	})
+
+	t.Run("context handler without chain handler", func(t *testing.T) {
+		chain := &mockChain{}
+		ctxH := &callbacks.SimpleHandler{}
+		cctx := callbacks.ContextWithHandler(ctx, ctxH)
+		handler := getChainCallbackHandler(cctx, chain)
+		require.NotNil(t, handler)
+		assert.Equal(t, ctxH, handler)
 	})
 
 	t.Run("chain with callback handler", func(t *testing.T) {
@@ -192,7 +203,7 @@ func TestGetChainCallbackHandler(t *testing.T) {
 		// Mock the GetCallbackHandler method
 		handlerHaver := &mockHandlerHaver{handler: mockHandler}
 
-		handler := getChainCallbackHandler(handlerHaver)
+		handler := getChainCallbackHandler(ctx, handlerHaver)
 		assert.Equal(t, mockHandler, handler)
 	})
 }
