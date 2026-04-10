@@ -10,7 +10,7 @@ import (
 
 func TestHandlerFromContext_nilContext(t *testing.T) {
 	t.Parallel()
-	h, ok := HandlerFromContext(nil)
+	h, ok := HandlerFromContext(context.TODO())
 	assert.False(t, ok)
 	assert.Nil(t, h)
 }

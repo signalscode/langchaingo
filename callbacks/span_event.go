@@ -2,6 +2,7 @@ package callbacks
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"time"
 )
@@ -24,6 +25,9 @@ const (
 
 // SpanEvent is a structured observation for logging and metrics backends.
 // Name examples: "chain", "llm_generate", "tool", "retriever", "llm_legacy", "stream_orphan".
+//
+// JSON encoding is defined by [SpanEvent.MarshalJSON]. Use [json.Marshal], [MarshalSpanEvents],
+// or [SpanEventsMetadataJSON].
 type SpanEvent struct {
 	// Name identifies the logical phase (e.g. chain, llm_generate).
 	Name string
@@ -41,6 +45,61 @@ type SpanEvent struct {
 	Attrs map[string]string
 	// Orphan is true when the event could not be matched to an open span (stack mismatch or stray stream chunk).
 	Orphan bool
+}
+
+// MarshalJSON implements [json.Marshaler]. Encoded fields:
+//   - name, op: strings
+//   - start_at, end_at: UTC RFC3339Nano, omitted if zero
+//   - duration: [time.Duration.String], omitted if zero
+//   - err: [error.Error], omitted if nil
+//   - attrs: string map, omitted if empty/nil
+//   - orphan: omitted if false
+func (e SpanEvent) MarshalJSON() ([]byte, error) {
+	w := spanEventJSON{
+		Name:   e.Name,
+		Op:     string(e.Op),
+		Attrs:  e.Attrs,
+		Orphan: e.Orphan,
+	}
+	if !e.StartAt.IsZero() {
+		w.StartAt = e.StartAt.UTC().Format(time.RFC3339Nano)
+	}
+	if !e.EndAt.IsZero() {
+		w.EndAt = e.EndAt.UTC().Format(time.RFC3339Nano)
+	}
+	if e.Duration != 0 {
+		w.Duration = e.Duration.String()
+	}
+	if e.Err != nil {
+		w.Err = e.Err.Error()
+	}
+	return json.Marshal(w)
+}
+
+// spanEventJSON is the on-wire JSON representation for [SpanEvent] (snake_case keys).
+type spanEventJSON struct {
+	Name     string            `json:"name"`
+	Op       string            `json:"op"`
+	StartAt  string            `json:"start_at,omitempty"`
+	EndAt    string            `json:"end_at,omitempty"`
+	Duration string            `json:"duration,omitempty"`
+	Err      string            `json:"err,omitempty"`
+	Attrs    map[string]string `json:"attrs,omitempty"`
+	Orphan   bool              `json:"orphan,omitempty"`
+}
+
+// MarshalSpanEvents returns JSON for a slice of [SpanEvent] using [SpanEvent.MarshalJSON].
+func MarshalSpanEvents(events []SpanEvent) ([]byte, error) {
+	return json.Marshal(events)
+}
+
+// SpanEventsMetadataJSON returns span_events as JSON for embedding in other metadata blobs (tests, debugging).
+func SpanEventsMetadataJSON(events []SpanEvent) (json.RawMessage, error) {
+	b, err := json.Marshal(events)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(b), nil
 }
 
 // SpanRecorder receives span events from TimingHandler. Implementations may forward to logs,
