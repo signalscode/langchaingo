@@ -82,9 +82,9 @@ func (o *OpenAIFunctionsAgent) Plan(
 
 	var stream func(ctx context.Context, chunk []byte) error
 
-	if o.CallbacksHandler != nil {
+	if h := callbacks.EffectiveHandler(ctx, o.CallbacksHandler); h != nil {
 		stream = func(ctx context.Context, chunk []byte) error {
-			o.CallbacksHandler.HandleStreamingFunc(ctx, chunk)
+			h.HandleStreamingFunc(ctx, chunk)
 			return nil
 		}
 	}

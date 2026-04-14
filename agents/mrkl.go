@@ -74,9 +74,9 @@ func (a *OneShotZeroAgent) Plan(
 
 	var stream func(ctx context.Context, chunk []byte) error
 
-	if a.CallbacksHandler != nil {
+	if h := callbacks.EffectiveHandler(ctx, a.CallbacksHandler); h != nil {
 		stream = func(ctx context.Context, chunk []byte) error {
-			a.CallbacksHandler.HandleStreamingFunc(ctx, chunk)
+			h.HandleStreamingFunc(ctx, chunk)
 			return nil
 		}
 	}
