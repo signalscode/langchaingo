@@ -19,7 +19,7 @@ import (
 )
 
 func main() {
-	ctx := context.Background()
+	ctx := callbacks.EnsureTraceFrames(context.Background())
 	logging := callbacks.LogHandler{}
 	prompt := prompts.NewPromptTemplate(
 		"Reply with one short sentence. Task: {{.task}}",

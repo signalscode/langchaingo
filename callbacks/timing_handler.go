@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/tmc/langchaingo/llms"
@@ -40,9 +39,9 @@ type streamAgg struct {
 // It implements the full Handler interface and should be used as the outermost handler when you want
 // timings to include work performed by inner handlers.
 //
-// Concurrency: a single TimingHandler must not be shared across overlapping logical operations unless
-// guarded; use one instance per request or protect with external synchronization. The handler uses
-// a mutex for stack/stream state.
+// Stack pairing and LLM stream aggregation use *traceFrames stored on context.Context (see
+// ContextWithTraceFrames, EnsureTraceFrames). Each logical trace should use a context branch that carries
+// those frames so one TimingHandler instance can serve concurrent overlapping traces safely.
 type TimingHandler struct {
 	Inner    Handler
 	Recorder SpanRecorder
@@ -51,9 +50,10 @@ type TimingHandler struct {
 	// Now returns the current time; if nil, time.Now is used. Useful for tests.
 	Now func() time.Time
 
-	mu     sync.Mutex
-	stack  []stackFrame
-	stream streamAgg
+	// AutoEnsureTraceFrames allocates *traceFrames and attaches it with context.WithValue when ctx
+	// does not already carry one. Inner receives the enriched ctx. Repeated callbacks must still pass a
+	// context that inherits that value; calling with context.Background() each time cannot pair spans.
+	AutoEnsureTraceFrames bool
 }
 
 var _ Handler = (*TimingHandler)(nil)
@@ -68,6 +68,22 @@ func NewTimingHandler(rec SpanRecorder, inners ...Handler) *TimingHandler {
 		Enabled:  rec != nil,
 	}
 	return th
+}
+
+// resolveTraceContext returns the context to pass to Inner and Record (possibly enriched with
+// *traceFrames), and *traceFrames when present or auto-installed. Callers: ctx, tf := t.resolveTraceContext(ctx).
+func (t *TimingHandler) resolveTraceContext(ctx context.Context) (context.Context, *traceFrames) {
+	if t == nil {
+		return ctx, nil
+	}
+	if tf := traceFramesFromContext(ctx); tf != nil {
+		return ctx, tf
+	}
+	if t.AutoEnsureTraceFrames {
+		tf := newTraceFrames()
+		return context.WithValue(ctx, traceFramesKey, tf), tf
+	}
+	return ctx, nil
 }
 
 func (t *TimingHandler) HandleText(ctx context.Context, text string) {
@@ -109,20 +125,24 @@ func (t *TimingHandler) HandleLLMStart(ctx context.Context, prompts []string) {
 }
 
 func (t *TimingHandler) HandleLLMGenerateContentStart(ctx context.Context, ms []llms.MessageContent) {
+	ctx, tf := t.resolveTraceContext(ctx)
 	if t.invokeInner() {
 		defer t.Inner.HandleLLMGenerateContentStart(ctx, ms)
 	}
 
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	if !t.active() {
 		return
 	}
+	if tf == nil {
+		return
+	}
+
+	tf.mu.Lock()
+	defer tf.mu.Unlock()
 
 	ts := t.now()
-	t.stack = append(t.stack, stackFrame{kind: spanLLMGen, start: ts})
-	t.stream = streamAgg{}
+	tf.stack = append(tf.stack, stackFrame{kind: spanLLMGen, start: ts})
+	tf.stream = streamAgg{}
 	t.record(ctx, SpanEvent{
 		Name:    "llm_generate",
 		Op:      SpanOpStart,
@@ -133,19 +153,17 @@ func (t *TimingHandler) HandleLLMGenerateContentStart(ctx context.Context, ms []
 }
 
 func (t *TimingHandler) HandleLLMGenerateContentEnd(ctx context.Context, res *llms.ContentResponse) {
+	ctx, tf := t.resolveTraceContext(ctx)
 	if t.invokeInner() {
 		defer t.Inner.HandleLLMGenerateContentEnd(ctx, res)
 	}
-
-	t.mu.Lock()
-	defer t.mu.Unlock()
 
 	if !t.active() {
 		return
 	}
 
 	ts := t.now()
-	if len(t.stack) == 0 || t.stack[len(t.stack)-1].kind != spanLLMGen {
+	if tf == nil {
 		t.record(ctx, SpanEvent{
 			Name:   "llm_generate",
 			Op:     SpanOpEnd,
@@ -156,11 +174,30 @@ func (t *TimingHandler) HandleLLMGenerateContentEnd(ctx context.Context, res *ll
 		return
 	}
 
-	fr := t.stack[len(t.stack)-1]
-	t.stack = t.stack[:len(t.stack)-1]
+	tf.mu.Lock()
+	defer tf.mu.Unlock()
+
+	stack := &tf.stack
+	stream := &tf.stream
+
+	if len(*stack) == 0 || (*stack)[len(*stack)-1].kind != spanLLMGen {
+		t.record(ctx, SpanEvent{
+			Name:   "llm_generate",
+			Op:     SpanOpEnd,
+			EndAt:  ts,
+			Orphan: true,
+			Attrs:  attrsFromContentResponse(res),
+		})
+		return
+	}
+
+	fr := (*stack)[len(*stack)-1]
+	*stack = (*stack)[:len(*stack)-1]
 	dur := ts.Sub(fr.start)
+	streamSnap := *stream
+	*stream = streamAgg{}
 	attrs := attrsFromContentResponse(res)
-	attrs = mergeAttrs(attrs, t.finalizeStreamAttrs(ts, fr.start))
+	attrs = mergeAttrs(attrs, finalizeStreamAttrs(streamSnap, ts, fr.start))
 	t.record(ctx, SpanEvent{
 		Name:     "llm_generate",
 		Op:       SpanOpEnd,
@@ -169,23 +206,20 @@ func (t *TimingHandler) HandleLLMGenerateContentEnd(ctx context.Context, res *ll
 		Duration: dur,
 		Attrs:    attrs,
 	})
-	t.stream = streamAgg{}
 }
 
 func (t *TimingHandler) HandleLLMError(ctx context.Context, err error) {
+	ctx, tf := t.resolveTraceContext(ctx)
 	if t.invokeInner() {
 		defer t.Inner.HandleLLMError(ctx, err)
 	}
-
-	t.mu.Lock()
-	defer t.mu.Unlock()
 
 	if !t.active() {
 		return
 	}
 
 	ts := t.now()
-	if len(t.stack) == 0 || t.stack[len(t.stack)-1].kind != spanLLMGen {
+	if tf == nil {
 		t.record(ctx, SpanEvent{
 			Name:   "llm_generate",
 			Op:     SpanOpError,
@@ -196,10 +230,29 @@ func (t *TimingHandler) HandleLLMError(ctx context.Context, err error) {
 		return
 	}
 
-	fr := t.stack[len(t.stack)-1]
-	t.stack = t.stack[:len(t.stack)-1]
+	tf.mu.Lock()
+	defer tf.mu.Unlock()
+
+	stack := &tf.stack
+	stream := &tf.stream
+
+	if len(*stack) == 0 || (*stack)[len(*stack)-1].kind != spanLLMGen {
+		t.record(ctx, SpanEvent{
+			Name:   "llm_generate",
+			Op:     SpanOpError,
+			EndAt:  ts,
+			Err:    err,
+			Orphan: true,
+		})
+		return
+	}
+
+	fr := (*stack)[len(*stack)-1]
+	*stack = (*stack)[:len(*stack)-1]
 	dur := ts.Sub(fr.start)
-	attrs := mergeAttrs(map[string]string{}, t.finalizeStreamAttrs(ts, fr.start))
+	streamSnap := *stream
+	*stream = streamAgg{}
+	attrs := mergeAttrs(map[string]string{}, finalizeStreamAttrs(streamSnap, ts, fr.start))
 	t.record(ctx, SpanEvent{
 		Name:     "llm_generate",
 		Op:       SpanOpError,
@@ -209,23 +262,26 @@ func (t *TimingHandler) HandleLLMError(ctx context.Context, err error) {
 		Err:      err,
 		Attrs:    attrs,
 	})
-	t.stream = streamAgg{}
 }
 
 func (t *TimingHandler) HandleChainStart(ctx context.Context, inputs map[string]any) {
+	ctx, tf := t.resolveTraceContext(ctx)
 	if t.invokeInner() {
 		defer t.Inner.HandleChainStart(ctx, inputs)
 	}
 
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	if !t.active() {
 		return
 	}
+	if tf == nil {
+		return
+	}
+
+	tf.mu.Lock()
+	defer tf.mu.Unlock()
 
 	ts := t.now()
-	t.stack = append(t.stack, stackFrame{kind: spanChain, start: ts})
+	tf.stack = append(tf.stack, stackFrame{kind: spanChain, start: ts})
 	t.record(ctx, SpanEvent{
 		Name:    "chain",
 		Op:      SpanOpStart,
@@ -236,19 +292,17 @@ func (t *TimingHandler) HandleChainStart(ctx context.Context, inputs map[string]
 }
 
 func (t *TimingHandler) HandleChainEnd(ctx context.Context, outputs map[string]any) {
+	ctx, tf := t.resolveTraceContext(ctx)
 	if t.invokeInner() {
 		defer t.Inner.HandleChainEnd(ctx, outputs)
 	}
-
-	t.mu.Lock()
-	defer t.mu.Unlock()
 
 	if !t.active() {
 		return
 	}
 
 	ts := t.now()
-	if len(t.stack) == 0 || t.stack[len(t.stack)-1].kind != spanChain {
+	if tf == nil {
 		t.record(ctx, SpanEvent{
 			Name:   "chain",
 			Op:     SpanOpEnd,
@@ -259,8 +313,24 @@ func (t *TimingHandler) HandleChainEnd(ctx context.Context, outputs map[string]a
 		return
 	}
 
-	fr := t.stack[len(t.stack)-1]
-	t.stack = t.stack[:len(t.stack)-1]
+	tf.mu.Lock()
+	defer tf.mu.Unlock()
+
+	stack := &tf.stack
+
+	if len(*stack) == 0 || (*stack)[len(*stack)-1].kind != spanChain {
+		t.record(ctx, SpanEvent{
+			Name:   "chain",
+			Op:     SpanOpEnd,
+			EndAt:  ts,
+			Orphan: true,
+			Attrs:  map[string]string{"output_keys": strconv.Itoa(len(outputs))},
+		})
+		return
+	}
+
+	fr := (*stack)[len(*stack)-1]
+	*stack = (*stack)[:len(*stack)-1]
 	t.record(ctx, SpanEvent{
 		Name:     "chain",
 		Op:       SpanOpEnd,
@@ -272,19 +342,17 @@ func (t *TimingHandler) HandleChainEnd(ctx context.Context, outputs map[string]a
 }
 
 func (t *TimingHandler) HandleChainError(ctx context.Context, err error) {
+	ctx, tf := t.resolveTraceContext(ctx)
 	if t.invokeInner() {
 		defer t.Inner.HandleChainError(ctx, err)
 	}
-
-	t.mu.Lock()
-	defer t.mu.Unlock()
 
 	if !t.active() {
 		return
 	}
 
 	ts := t.now()
-	if len(t.stack) == 0 || t.stack[len(t.stack)-1].kind != spanChain {
+	if tf == nil {
 		t.record(ctx, SpanEvent{
 			Name:   "chain",
 			Op:     SpanOpError,
@@ -295,8 +363,24 @@ func (t *TimingHandler) HandleChainError(ctx context.Context, err error) {
 		return
 	}
 
-	fr := t.stack[len(t.stack)-1]
-	t.stack = t.stack[:len(t.stack)-1]
+	tf.mu.Lock()
+	defer tf.mu.Unlock()
+
+	stack := &tf.stack
+
+	if len(*stack) == 0 || (*stack)[len(*stack)-1].kind != spanChain {
+		t.record(ctx, SpanEvent{
+			Name:   "chain",
+			Op:     SpanOpError,
+			EndAt:  ts,
+			Err:    err,
+			Orphan: true,
+		})
+		return
+	}
+
+	fr := (*stack)[len(*stack)-1]
+	*stack = (*stack)[:len(*stack)-1]
 	t.record(ctx, SpanEvent{
 		Name:     "chain",
 		Op:       SpanOpError,
@@ -308,19 +392,23 @@ func (t *TimingHandler) HandleChainError(ctx context.Context, err error) {
 }
 
 func (t *TimingHandler) HandleToolStart(ctx context.Context, input string) {
+	ctx, tf := t.resolveTraceContext(ctx)
 	if t.invokeInner() {
 		defer t.Inner.HandleToolStart(ctx, input)
 	}
 
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	if !t.active() {
 		return
 	}
+	if tf == nil {
+		return
+	}
+
+	tf.mu.Lock()
+	defer tf.mu.Unlock()
 
 	ts := t.now()
-	t.stack = append(t.stack, stackFrame{kind: spanTool, start: ts})
+	tf.stack = append(tf.stack, stackFrame{kind: spanTool, start: ts})
 	t.record(ctx, SpanEvent{
 		Name:    "tool",
 		Op:      SpanOpStart,
@@ -331,19 +419,17 @@ func (t *TimingHandler) HandleToolStart(ctx context.Context, input string) {
 }
 
 func (t *TimingHandler) HandleToolEnd(ctx context.Context, output string) {
+	ctx, tf := t.resolveTraceContext(ctx)
 	if t.invokeInner() {
 		defer t.Inner.HandleToolEnd(ctx, output)
 	}
-
-	t.mu.Lock()
-	defer t.mu.Unlock()
 
 	if !t.active() {
 		return
 	}
 
 	ts := t.now()
-	if len(t.stack) == 0 || t.stack[len(t.stack)-1].kind != spanTool {
+	if tf == nil {
 		t.record(ctx, SpanEvent{
 			Name:   "tool",
 			Op:     SpanOpEnd,
@@ -354,8 +440,24 @@ func (t *TimingHandler) HandleToolEnd(ctx context.Context, output string) {
 		return
 	}
 
-	fr := t.stack[len(t.stack)-1]
-	t.stack = t.stack[:len(t.stack)-1]
+	tf.mu.Lock()
+	defer tf.mu.Unlock()
+
+	stack := &tf.stack
+
+	if len(*stack) == 0 || (*stack)[len(*stack)-1].kind != spanTool {
+		t.record(ctx, SpanEvent{
+			Name:   "tool",
+			Op:     SpanOpEnd,
+			EndAt:  ts,
+			Orphan: true,
+			Attrs:  map[string]string{"output_len": strconv.Itoa(len(output))},
+		})
+		return
+	}
+
+	fr := (*stack)[len(*stack)-1]
+	*stack = (*stack)[:len(*stack)-1]
 	t.record(ctx, SpanEvent{
 		Name:     "tool",
 		Op:       SpanOpEnd,
@@ -367,19 +469,17 @@ func (t *TimingHandler) HandleToolEnd(ctx context.Context, output string) {
 }
 
 func (t *TimingHandler) HandleToolError(ctx context.Context, err error) {
+	ctx, tf := t.resolveTraceContext(ctx)
 	if t.invokeInner() {
 		defer t.Inner.HandleToolError(ctx, err)
 	}
-
-	t.mu.Lock()
-	defer t.mu.Unlock()
 
 	if !t.active() {
 		return
 	}
 
 	ts := t.now()
-	if len(t.stack) == 0 || t.stack[len(t.stack)-1].kind != spanTool {
+	if tf == nil {
 		t.record(ctx, SpanEvent{
 			Name:   "tool",
 			Op:     SpanOpError,
@@ -390,8 +490,24 @@ func (t *TimingHandler) HandleToolError(ctx context.Context, err error) {
 		return
 	}
 
-	fr := t.stack[len(t.stack)-1]
-	t.stack = t.stack[:len(t.stack)-1]
+	tf.mu.Lock()
+	defer tf.mu.Unlock()
+
+	stack := &tf.stack
+
+	if len(*stack) == 0 || (*stack)[len(*stack)-1].kind != spanTool {
+		t.record(ctx, SpanEvent{
+			Name:   "tool",
+			Op:     SpanOpError,
+			EndAt:  ts,
+			Err:    err,
+			Orphan: true,
+		})
+		return
+	}
+
+	fr := (*stack)[len(*stack)-1]
+	*stack = (*stack)[:len(*stack)-1]
 	t.record(ctx, SpanEvent{
 		Name:     "tool",
 		Op:       SpanOpError,
@@ -445,19 +561,23 @@ func (t *TimingHandler) HandleAgentFinish(ctx context.Context, finish schema.Age
 }
 
 func (t *TimingHandler) HandleRetrieverStart(ctx context.Context, query string) {
+	ctx, tf := t.resolveTraceContext(ctx)
 	if t.invokeInner() {
 		defer t.Inner.HandleRetrieverStart(ctx, query)
 	}
 
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	if !t.active() {
 		return
 	}
+	if tf == nil {
+		return
+	}
+
+	tf.mu.Lock()
+	defer tf.mu.Unlock()
 
 	ts := t.now()
-	t.stack = append(t.stack, stackFrame{kind: spanRetriever, start: ts, query: query})
+	tf.stack = append(tf.stack, stackFrame{kind: spanRetriever, start: ts, query: query})
 	t.record(ctx, SpanEvent{
 		Name:    "retriever",
 		Op:      SpanOpStart,
@@ -468,19 +588,17 @@ func (t *TimingHandler) HandleRetrieverStart(ctx context.Context, query string) 
 }
 
 func (t *TimingHandler) HandleRetrieverEnd(ctx context.Context, query string, documents []schema.Document) {
+	ctx, tf := t.resolveTraceContext(ctx)
 	if t.invokeInner() {
 		defer t.Inner.HandleRetrieverEnd(ctx, query, documents)
 	}
-
-	t.mu.Lock()
-	defer t.mu.Unlock()
 
 	if !t.active() {
 		return
 	}
 
 	ts := t.now()
-	if len(t.stack) == 0 || t.stack[len(t.stack)-1].kind != spanRetriever {
+	if tf == nil {
 		t.record(ctx, SpanEvent{
 			Name:   "retriever",
 			Op:     SpanOpEnd,
@@ -493,8 +611,26 @@ func (t *TimingHandler) HandleRetrieverEnd(ctx context.Context, query string, do
 		return
 	}
 
-	fr := t.stack[len(t.stack)-1]
-	t.stack = t.stack[:len(t.stack)-1]
+	tf.mu.Lock()
+	defer tf.mu.Unlock()
+
+	stack := &tf.stack
+
+	if len(*stack) == 0 || (*stack)[len(*stack)-1].kind != spanRetriever {
+		t.record(ctx, SpanEvent{
+			Name:   "retriever",
+			Op:     SpanOpEnd,
+			EndAt:  ts,
+			Orphan: true,
+			Attrs: map[string]string{
+				"docs": strconv.Itoa(len(documents)),
+			},
+		})
+		return
+	}
+
+	fr := (*stack)[len(*stack)-1]
+	*stack = (*stack)[:len(*stack)-1]
 	attrs := map[string]string{
 		"docs":      strconv.Itoa(len(documents)),
 		"query_len": strconv.Itoa(len(query)),
@@ -515,37 +651,44 @@ func (t *TimingHandler) HandleRetrieverEnd(ctx context.Context, query string, do
 }
 
 func (t *TimingHandler) HandleStreamingFunc(ctx context.Context, chunk []byte) {
+	ctx, tf := t.resolveTraceContext(ctx)
 	if t.invokeInner() {
 		defer t.Inner.HandleStreamingFunc(ctx, chunk)
 	}
 
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	if !t.active() {
 		return
 	}
+	if tf == nil {
+		return
+	}
+
+	tf.mu.Lock()
+	defer tf.mu.Unlock()
+
+	stack := &tf.stack
+	stream := &tf.stream
 
 	ts := t.now()
 	n := len(chunk)
 	var interArrival time.Duration
-	if t.stream.chunkCount > 0 {
-		interArrival = ts.Sub(t.stream.lastChunkAt)
+	if stream.chunkCount > 0 {
+		interArrival = ts.Sub(stream.lastChunkAt)
 	}
 
-	t.stream.chunkCount++
-	t.stream.bytesTotal += n
-	t.stream.lastChunkAt = ts
-	if t.stream.firstChunkAt == nil {
-		t.stream.firstChunkAt = &ts
+	stream.chunkCount++
+	stream.bytesTotal += n
+	stream.lastChunkAt = ts
+	if stream.firstChunkAt == nil {
+		stream.firstChunkAt = &ts
 	}
 
-	topLLM := len(t.stack) > 0 && t.stack[len(t.stack)-1].kind == spanLLMGen
+	topLLM := len(*stack) > 0 && (*stack)[len(*stack)-1].kind == spanLLMGen
 	orphan := !topLLM
 	attrs := map[string]string{
 		"bytes":            strconv.Itoa(n),
-		"chunk_index":      strconv.Itoa(t.stream.chunkCount),
-		"bytes_total":      strconv.Itoa(t.stream.bytesTotal),
+		"chunk_index":      strconv.Itoa(stream.chunkCount),
+		"bytes_total":      strconv.Itoa(stream.bytesTotal),
 		"inter_arrival_ns": strconv.FormatInt(interArrival.Nanoseconds(), 10),
 	}
 
@@ -567,15 +710,15 @@ func (t *TimingHandler) active() bool {
 	return t != nil && t.Enabled && t.Recorder != nil
 }
 
-func (t *TimingHandler) finalizeStreamAttrs(endTime, llmStart time.Time) map[string]string {
+func finalizeStreamAttrs(s streamAgg, endTime, llmStart time.Time) map[string]string {
 	out := map[string]string{
-		"stream_chunks": strconv.Itoa(t.stream.chunkCount),
-		"stream_bytes":  strconv.Itoa(t.stream.bytesTotal),
+		"stream_chunks": strconv.Itoa(s.chunkCount),
+		"stream_bytes":  strconv.Itoa(s.bytesTotal),
 	}
 
-	if t.stream.firstChunkAt != nil {
-		out["ttft_ns"] = strconv.FormatInt(t.stream.firstChunkAt.Sub(llmStart).Nanoseconds(), 10)
-		out["stream_duration_ns"] = strconv.FormatInt(endTime.Sub(*t.stream.firstChunkAt).Nanoseconds(), 10)
+	if s.firstChunkAt != nil {
+		out["ttft_ns"] = strconv.FormatInt(s.firstChunkAt.Sub(llmStart).Nanoseconds(), 10)
+		out["stream_duration_ns"] = strconv.FormatInt(endTime.Sub(*s.firstChunkAt).Nanoseconds(), 10)
 	}
 
 	return out

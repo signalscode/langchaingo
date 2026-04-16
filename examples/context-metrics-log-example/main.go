@@ -2,6 +2,10 @@
 // so metrics and logs flow through [callbacks.EffectiveHandler] at library choke points
 // (chains, agents, retrievers) without setting [callbacks.Handler] on every struct field.
 //
+// TimingHandler.AutoEnsureTraceFrames is enabled so the first stack-aware callback allocates
+// *traceFrames on the request context; downstream code must pass derived contexts from that
+// branch (see [callbacks.TimingHandler] and [callbacks.EnsureTraceFrames] for production).
+//
 // One SliceRecorder, TimingHandler, and context are reused for all demo sections; [callbacks.SliceRecorder.Reset]
 // clears events between sections.
 //
@@ -31,12 +35,13 @@ func main() {
 		logging = callbacks.LogHandler{}
 		rec     = &callbacks.SliceRecorder{}
 		timing  = callbacks.NewTimingHandler(rec, logging)
-		ctx     = callbacks.ContextWithHandler(context.Background(), timing)
 		prompt  = prompts.NewPromptTemplate(
 			"Reply with one short sentence. Task: {{.task}}",
 			[]string{"task"},
 		)
 	)
+	timing.AutoEnsureTraceFrames = true
+	ctx := callbacks.ContextWithHandler(context.Background(), timing)
 
 	// 1. Direct model
 	model := fake.NewModelWithCallbacks([]string{"The answer is 4."})
