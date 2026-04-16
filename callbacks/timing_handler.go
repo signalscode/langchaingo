@@ -58,12 +58,12 @@ type TimingHandler struct {
 
 var _ Handler = (*TimingHandler)(nil)
 
-// NewTimingHandler builds a TimingHandler with Inner = Coalesce(inners...).
+// NewTimingHandler builds a TimingHandler with Inner = NewCombiningHandler(inners...).
 // Enabled is true when rec is non-nil; set Enabled explicitly if you attach Recorder later.
 func NewTimingHandler(rec SpanRecorder, inners ...Handler) *TimingHandler {
 	th := &TimingHandler{
 		Recorder: rec,
-		Inner:    Coalesce(inners...),
+		Inner:    NewCombiningHandler(inners...),
 		Now:      time.Now,
 		Enabled:  rec != nil,
 	}

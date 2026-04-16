@@ -69,12 +69,17 @@ func (m *Model) Call(ctx context.Context, prompt string, options ...llms.CallOpt
 func (m *Model) GenerateContent(ctx context.Context, langchainMessages []llms.MessageContent, options ...llms.CallOption) (*llms.ContentResponse, error) {
 	callOptions := resolveDefaultOptions(sdk.DefaultChatRequestParams, m.clientOptions)
 	setCallOptions(options, callOptions)
-	m.CallbacksHandler.HandleLLMGenerateContentStart(ctx, langchainMessages)
+	if cb := callbacks.EffectiveHandler(ctx, m.CallbacksHandler); cb != nil {
+		cb.HandleLLMGenerateContentStart(ctx, langchainMessages)
+	}
 
 	chatOpts := mistralChatParamsFromCallOptions(callOptions)
 
 	messages, err := convertToMistralChatMessages(langchainMessages)
 	if err != nil {
+		if cb := callbacks.EffectiveHandler(ctx, m.CallbacksHandler); cb != nil {
+			cb.HandleLLMError(ctx, err)
+		}
 		return nil, err
 	}
 
@@ -145,15 +150,19 @@ func mistralChatParamsFromCallOptions(callOpts *llms.CallOptions) sdk.ChatReques
 
 func generateNonStreamingContent(ctx context.Context, m *Model, callOptions *llms.CallOptions, messages []sdk.ChatMessage, chatOpts sdk.ChatRequestParams) (*llms.ContentResponse, error) {
 	res, err := m.client.Chat(callOptions.Model, messages, &chatOpts)
-	m.CallbacksHandler.HandleLLMGenerateContentEnd(ctx, nil)
 	if err != nil {
-		m.CallbacksHandler.HandleLLMError(ctx, err)
+		if cb := callbacks.EffectiveHandler(ctx, m.CallbacksHandler); cb != nil {
+			cb.HandleLLMError(ctx, err)
+		}
 		return nil, err
 	}
 
 	if len(res.Choices) < 1 {
-		m.CallbacksHandler.HandleLLMError(ctx, err)
-		return nil, errors.New("unexpected response from Mistral SDK, length of the Choices slice must be greater than or equal 1")
+		err := errors.New("unexpected response from Mistral SDK, length of the Choices slice must be greater than or equal 1")
+		if cb := callbacks.EffectiveHandler(ctx, m.CallbacksHandler); cb != nil {
+			cb.HandleLLMError(ctx, err)
+		}
+		return nil, err
 	}
 
 	langchainContentResponse := &llms.ContentResponse{
@@ -184,7 +193,9 @@ func generateNonStreamingContent(ctx context.Context, m *Model, callOptions *llm
 			}
 		}
 	}
-	m.CallbacksHandler.HandleLLMGenerateContentEnd(ctx, langchainContentResponse)
+	if cb := callbacks.EffectiveHandler(ctx, m.CallbacksHandler); cb != nil {
+		cb.HandleLLMGenerateContentEnd(ctx, langchainContentResponse)
+	}
 
 	return langchainContentResponse, nil
 }
@@ -192,7 +203,9 @@ func generateNonStreamingContent(ctx context.Context, m *Model, callOptions *llm
 func generateStreamingContent(ctx context.Context, m *Model, callOptions *llms.CallOptions, messages []sdk.ChatMessage, chatOpts sdk.ChatRequestParams) (*llms.ContentResponse, error) {
 	chatResChan, err := m.client.ChatStream(callOptions.Model, messages, &chatOpts)
 	if err != nil {
-		m.CallbacksHandler.HandleLLMError(ctx, err)
+		if cb := callbacks.EffectiveHandler(ctx, m.CallbacksHandler); cb != nil {
+			cb.HandleLLMError(ctx, err)
+		}
 		return nil, err
 	}
 	langchainContentResponse := &llms.ContentResponse{
@@ -229,13 +242,22 @@ func generateStreamingContent(ctx context.Context, m *Model, callOptions *llms.C
 			}
 			err := callOptions.StreamingFunc(ctx, []byte(chunkStr))
 			if err != nil {
+				if cb := callbacks.EffectiveHandler(ctx, m.CallbacksHandler); cb != nil {
+					cb.HandleLLMError(ctx, err)
+				}
 				return langchainContentResponse, err
 			}
 		} else {
+			if cb := callbacks.EffectiveHandler(ctx, m.CallbacksHandler); cb != nil {
+				cb.HandleLLMError(ctx, chatResChunk.Error)
+			}
 			return langchainContentResponse, chatResChunk.Error
 		}
 	}
 
+	if cb := callbacks.EffectiveHandler(ctx, m.CallbacksHandler); cb != nil {
+		cb.HandleLLMGenerateContentEnd(ctx, langchainContentResponse)
+	}
 	return langchainContentResponse, nil
 }
 

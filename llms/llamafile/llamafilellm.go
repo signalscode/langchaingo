@@ -45,8 +45,9 @@ func (o *LLM) Call(ctx context.Context, prompt string, options ...llms.CallOptio
 
 // GenerateContent implements the Model interface.
 func (o *LLM) GenerateContent(ctx context.Context, messages []llms.MessageContent, options ...llms.CallOption) (*llms.ContentResponse, error) { // nolint: lll, cyclop, funlen
-	if o.CallbacksHandler != nil {
-		o.CallbacksHandler.HandleLLMGenerateContentStart(ctx, messages)
+	cb := callbacks.EffectiveHandler(ctx, o.CallbacksHandler)
+	if cb != nil {
+		cb.HandleLLMGenerateContentStart(ctx, messages)
 	}
 
 	opts := llms.CallOptions{}
@@ -112,26 +113,30 @@ func (o *LLM) GenerateContent(ctx context.Context, messages []llms.MessageConten
 
 	err := o.client.GenerateChat(ctx, req, fn)
 	if err != nil {
-		if o.CallbacksHandler != nil {
-			o.CallbacksHandler.HandleLLMError(ctx, err)
+		if cb != nil {
+			cb.HandleLLMError(ctx, err)
 		}
 		return nil, err
 	}
 
-	return &llms.ContentResponse{
+	resp := &llms.ContentResponse{
 		Choices: []*llms.ContentChoice{
 			{
 				Content: streamedResponse,
 			},
 		},
-	}, nil
+	}
+	if cb != nil {
+		cb.HandleLLMGenerateContentEnd(ctx, resp)
+	}
+	return resp, nil
 }
 
 func (o *LLM) CreateEmbedding(ctx context.Context, texts []string) ([][]float32, error) {
 	resp, err := o.client.CreateEmbedding(ctx, texts)
 	if err != nil {
-		if o.CallbacksHandler != nil {
-			o.CallbacksHandler.HandleLLMError(ctx, err)
+		if cb := callbacks.EffectiveHandler(ctx, o.CallbacksHandler); cb != nil {
+			cb.HandleLLMError(ctx, err)
 		}
 		return nil, err
 	}

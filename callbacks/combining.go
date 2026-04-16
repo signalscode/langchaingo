@@ -7,6 +7,27 @@ import (
 	"github.com/tmc/langchaingo/schema"
 )
 
+// NewCombiningHandler returns a single [Handler] that forwards each callback to all
+// non-nil handlers in order (left to right). Nil handlers are dropped. If none remain,
+// it returns nil. If exactly one remains, it returns that handler without allocating a
+// [CombiningHandler].
+func NewCombiningHandler(handlers ...Handler) Handler {
+	out := make([]Handler, 0, len(handlers))
+	for _, h := range handlers {
+		if h != nil {
+			out = append(out, h)
+		}
+	}
+	switch len(out) {
+	case 0:
+		return nil
+	case 1:
+		return out[0]
+	default:
+		return CombiningHandler{Callbacks: out}
+	}
+}
+
 // CombiningHandler is a callback handler that combine multi callbacks.
 type CombiningHandler struct {
 	Callbacks []Handler

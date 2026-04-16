@@ -82,8 +82,9 @@ func (o *LLM) Call(ctx context.Context, prompt string, options ...llms.CallOptio
 
 // GenerateContent implements the Model interface.
 func (o *LLM) GenerateContent(ctx context.Context, messages []llms.MessageContent, options ...llms.CallOption) (*llms.ContentResponse, error) {
-	if o.CallbacksHandler != nil {
-		o.CallbacksHandler.HandleLLMGenerateContentStart(ctx, messages)
+	cb := callbacks.EffectiveHandler(ctx, o.CallbacksHandler)
+	if cb != nil {
+		cb.HandleLLMGenerateContentStart(ctx, messages)
 	}
 
 	opts := &llms.CallOptions{}
@@ -119,8 +120,8 @@ func generateCompletionsContent(ctx context.Context, o *LLM, messages []llms.Mes
 		StreamingFunc: opts.StreamingFunc,
 	})
 	if err != nil {
-		if o.CallbacksHandler != nil {
-			o.CallbacksHandler.HandleLLMError(ctx, err)
+		if cb := callbacks.EffectiveHandler(ctx, o.CallbacksHandler); cb != nil {
+			cb.HandleLLMError(ctx, err)
 		}
 		return nil, fmt.Errorf("anthropic: failed to create completion: %w", err)
 	}
@@ -160,8 +161,8 @@ func generateMessagesContent(ctx context.Context, o *LLM, messages []llms.Messag
 		StreamingReasoningFunc: opts.StreamingReasoningFunc,
 	})
 	if err != nil {
-		if o.CallbacksHandler != nil {
-			o.CallbacksHandler.HandleLLMError(ctx, err)
+		if cb := callbacks.EffectiveHandler(ctx, o.CallbacksHandler); cb != nil {
+			cb.HandleLLMError(ctx, err)
 		}
 		return nil, fmt.Errorf("anthropic: failed to create message: %w", err)
 	}

@@ -67,8 +67,9 @@ func (l *LLM) Call(ctx context.Context, prompt string, options ...llms.CallOptio
 
 // GenerateContent implements llms.Model.
 func (l *LLM) GenerateContent(ctx context.Context, messages []llms.MessageContent, options ...llms.CallOption) (*llms.ContentResponse, error) {
-	if l.CallbacksHandler != nil {
-		l.CallbacksHandler.HandleLLMGenerateContentStart(ctx, messages)
+	cb := callbacks.EffectiveHandler(ctx, l.CallbacksHandler)
+	if cb != nil {
+		cb.HandleLLMGenerateContentStart(ctx, messages)
 	}
 
 	opts := llms.CallOptions{
@@ -85,14 +86,14 @@ func (l *LLM) GenerateContent(ctx context.Context, messages []llms.MessageConten
 
 	res, err := l.client.CreateCompletion(ctx, l.modelProvider, opts.Model, m, opts)
 	if err != nil {
-		if l.CallbacksHandler != nil {
-			l.CallbacksHandler.HandleLLMError(ctx, err)
+		if cb != nil {
+			cb.HandleLLMError(ctx, err)
 		}
 		return nil, err
 	}
 
-	if l.CallbacksHandler != nil {
-		l.CallbacksHandler.HandleLLMGenerateContentEnd(ctx, res)
+	if cb != nil {
+		cb.HandleLLMGenerateContentEnd(ctx, res)
 	}
 
 	return res, nil

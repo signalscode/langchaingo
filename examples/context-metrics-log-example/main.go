@@ -39,7 +39,7 @@ func main() {
 	)
 
 	// 1. Direct model
-	model := NewFakeLLM([]string{"The answer is 4."})
+	model := fake.NewModelWithCallbacks([]string{"The answer is 4."})
 
 	fmt.Println("=== 1. direct model (context-only wiring) ===")
 	_, err := llms.GenerateFromSinglePrompt(ctx, model,
@@ -52,7 +52,7 @@ func main() {
 	rec.Reset()
 
 	// 2. Chain — [chains.Call]
-	model = NewFakeLLM([]string{"The answer is 5."})
+	model = fake.NewModelWithCallbacks([]string{"The answer is 5."})
 	chain := chains.NewLLMChain(model, prompt)
 
 	fmt.Println("=== 2. chain + model (context-only wiring) ===")
@@ -78,7 +78,7 @@ func main() {
 	rec.Reset()
 
 	// 4. Agent + executor — tool and LLM lifecycle use context
-	agentModel := NewFakeLLM([]string{
+	agentModel := fake.NewModelWithCallbacks([]string{
 		"Action: calculator\nAction Input: 8*8",
 		"Final Answer: 64",
 	})
@@ -119,70 +119,6 @@ func printMetrics(rec *callbacks.SliceRecorder) {
 		fmt.Println(line)
 	}
 	fmt.Println()
-}
-
-///// ------------------------------------------------------------------------------------------------
-///// Code below here is for mocking fake LLM and is not required in normal usage
-///// ------------------------------------------------------------------------------------------------
-
-// llmCallbacks wraps a model and invokes HandleLLM* via [callbacks.EffectiveHandler], like providers
-// that merge context with struct-level handlers. The fake LLM does not invoke callbacks by itself.
-type llmCallbacks struct {
-	inner   llms.Model
-	handler callbacks.Handler
-}
-
-// NewFakeLLM builds a model that observes callbacks from context (and optional field handlers).
-func NewFakeLLM(responses []string, handlers ...callbacks.Handler) *llmCallbacks {
-	handler := callbacks.Coalesce(handlers...)
-	return &llmCallbacks{inner: fake.NewFakeLLM(responses), handler: handler}
-}
-
-func (m *llmCallbacks) GenerateContent(ctx context.Context, messages []llms.MessageContent, options ...llms.CallOption) (*llms.ContentResponse, error) {
-	h := callbacks.EffectiveHandler(ctx, m.handler)
-	if h != nil {
-		h.HandleLLMGenerateContentStart(ctx, messages)
-	}
-	resp, err := m.inner.GenerateContent(ctx, messages, options...)
-	if err == nil && resp != nil {
-		withMockGenerationInfo(resp, messages)
-	}
-	if h != nil {
-		if err != nil {
-			h.HandleLLMError(ctx, err)
-		} else {
-			h.HandleLLMGenerateContentEnd(ctx, resp)
-		}
-	}
-	return resp, err
-}
-
-func withMockGenerationInfo(res *llms.ContentResponse, messages []llms.MessageContent) {
-	if res == nil || len(res.Choices) == 0 || res.Choices[0] == nil {
-		return
-	}
-	ch := res.Choices[0]
-	promptChars := 0
-	for _, msg := range messages {
-		for _, part := range msg.Parts {
-			switch t := part.(type) {
-			case llms.TextContent:
-				promptChars += len(t.Text)
-			default:
-				promptChars += len(fmt.Sprint(part))
-			}
-		}
-	}
-	completionChars := len(ch.Content)
-	ch.GenerationInfo = map[string]any{
-		"prompt_tokens":     promptChars,
-		"completion_tokens": completionChars,
-		"total_tokens":      promptChars + completionChars,
-	}
-}
-
-func (m *llmCallbacks) Call(ctx context.Context, prompt string, options ...llms.CallOption) (string, error) {
-	return llms.GenerateFromSinglePrompt(ctx, m, prompt, options...)
 }
 
 // staticResultsVS is a minimal [vectorstores.VectorStore] for the example.

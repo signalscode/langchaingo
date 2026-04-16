@@ -10,6 +10,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/tmc/langchaingo/callbacks"
 	"github.com/tmc/langchaingo/internal/imageutil"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/googleai"
@@ -43,8 +44,9 @@ func (g *Vertex) GenerateContent(
 	messages []llms.MessageContent,
 	options ...llms.CallOption,
 ) (*llms.ContentResponse, error) {
-	if g.CallbacksHandler != nil {
-		g.CallbacksHandler.HandleLLMGenerateContentStart(ctx, messages)
+	cb := callbacks.EffectiveHandler(ctx, g.CallbacksHandler)
+	if cb != nil {
+		cb.HandleLLMGenerateContentStart(ctx, messages)
 	}
 
 	opts := llms.CallOptions{
@@ -106,8 +108,8 @@ func (g *Vertex) GenerateContent(
 		}
 	}
 
-	if g.CallbacksHandler != nil {
-		g.CallbacksHandler.HandleLLMGenerateContentEnd(ctx, response)
+	if cb != nil {
+		cb.HandleLLMGenerateContentEnd(ctx, response)
 	}
 
 	return response, nil
