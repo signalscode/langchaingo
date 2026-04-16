@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -213,6 +214,38 @@ func TestTimingHandler_streamOrphanWithoutLLM(t *testing.T) {
 	require.True(t, e.Orphan)
 }
 
+func TestTimingHandler_SetEvent(t *testing.T) {
+	t.Parallel()
+	rec := &SliceRecorder{}
+	th := NewTimingRecorder(t, rec)
+	ctx := testCtx(t)
+
+	th.SetEvent(EventKindChain, true)
+	th.HandleChainStart(ctx, map[string]any{"k": 1})
+	th.HandleChainEnd(ctx, map[string]any{"o": 1})
+	require.Empty(t, rec.Events, "chain suppressed should not record")
+
+	th.SetEvent(EventKindChain, false)
+	th.HandleChainStart(ctx, map[string]any{"k": 2})
+	th.HandleChainEnd(ctx, map[string]any{"o": 2})
+	require.Len(t, rec.Events, 2)
+
+	th.SetEvent(EventKindStreaming, true)
+	th.HandleLLMGenerateContentStart(ctx, nil)
+	th.HandleStreamingFunc(ctx, []byte("a"))
+	th.HandleLLMGenerateContentEnd(ctx, &llms.ContentResponse{
+		Choices: []*llms.ContentChoice{{Content: "a"}},
+	})
+	streamChunks := 0
+	for _, e := range rec.Events {
+		if e.Name == "llm_stream" {
+			streamChunks++
+		}
+	}
+	require.Equal(t, 0, streamChunks, "streaming suppressed should skip llm_stream chunks")
+	require.True(t, th.GetEvent(EventKindStreaming))
+}
+
 // NewTimingRecorder builds a TimingHandler with a monotonic clock for tests.
 // Optional inners are composed like NewTimingHandler(rec, inners...).
 func NewTimingRecorder(t *testing.T, rec *SliceRecorder, inners ...Handler) *TimingHandler {
@@ -277,6 +310,56 @@ func TestTimingHandler_contextMode_concurrentDistinctFramesNoOrphans(t *testing.
 		}
 	}
 	require.Equal(t, 0, orphans, "overlapping traces should not produce orphan spans: %+v", rec.Events)
+}
+
+// TestTimingHandler_AutoEnsureTraceFrames_concurrent exercises AutoEnsureTraceFrames under many
+// goroutines: each builds a trace using context.Background() on the first callback, then threads
+// the auto-installed *traceFrames via the enriched context captured from the inner handler (mirrors
+// how callers must propagate ctx after the first stack-aware callback).
+func TestTimingHandler_AutoEnsureTraceFrames_concurrent(t *testing.T) {
+	t.Parallel()
+	const (
+		n          = 48
+		wantEvents = 5 * n // chain×2 + llm×2 + one stream chunk per goroutine
+	)
+	rec := &SliceRecorder{}
+	var wg sync.WaitGroup
+	var nilCtxCount atomic.Int32
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			spy := &contextCaptureInner{}
+			th := NewTimingHandler(rec, spy)
+			th.AutoEnsureTraceFrames = true
+			th.Now = time.Now
+
+			th.HandleChainStart(context.Background(), map[string]any{"id": id})
+			if spy.lastCtx == nil {
+				nilCtxCount.Add(1)
+				return
+			}
+			ctx := spy.lastCtx
+
+			th.HandleLLMGenerateContentStart(ctx, nil)
+			th.HandleStreamingFunc(ctx, []byte("z"))
+			th.HandleLLMGenerateContentEnd(ctx, &llms.ContentResponse{
+				Choices: []*llms.ContentChoice{{Content: "x"}},
+			})
+			th.HandleChainEnd(ctx, map[string]any{"out": id})
+		}(i)
+	}
+	wg.Wait()
+
+	require.Equal(t, int32(0), nilCtxCount.Load(), "every chain start should expose enriched ctx to Inner")
+	require.Len(t, rec.Events, wantEvents, "event count: %+v", rec.Events)
+	var orphans int
+	for _, e := range rec.Events {
+		if e.Orphan {
+			orphans++
+		}
+	}
+	require.Equal(t, 0, orphans, "auto-ensure concurrent traces should not produce orphans: %+v", rec.Events)
 }
 
 func TestTimingHandler_contextMode_autoEnsurePropagatesToChildContext(t *testing.T) {

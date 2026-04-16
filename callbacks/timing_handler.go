@@ -12,32 +12,12 @@ import (
 	"github.com/tmc/langchaingo/schema"
 )
 
-// spanKind identifies stack frames for paired callbacks.
-type spanKind int
-
-const (
-	spanChain spanKind = iota
-	spanLLMGen
-	spanTool
-	spanRetriever
-)
-
-type stackFrame struct {
-	kind  spanKind
-	start time.Time
-	query string // retriever start query
-}
-
-type streamAgg struct {
-	firstChunkAt *time.Time
-	lastChunkAt  time.Time
-	chunkCount   int
-	bytesTotal   int
-}
+const stringifyGenInfoMaxLen = 4096
 
 // TimingHandler wraps an inner Handler and records span timing and streaming metrics via SpanRecorder.
 // It implements the full Handler interface and should be used as the outermost handler when you want
-// timings to include work performed by inner handlers.
+// timings to include work performed by inner handlers. Per-category suppression uses [TimingHandler.SetEvent]
+// with [EventKind] values (including [EventKindStreaming] for stream chunks).
 //
 // Stack pairing and LLM stream aggregation use *traceFrames stored on context.Context (see
 // ContextWithTraceFrames, EnsureTraceFrames). Each logical trace should use a context branch that carries
@@ -54,6 +34,10 @@ type TimingHandler struct {
 	// does not already carry one. Inner receives the enriched ctx. Repeated callbacks must still pass a
 	// context that inherits that value; calling with context.Background() each time cannot pair spans.
 	AutoEnsureTraceFrames bool
+
+	// eventSuppressed gates recording per EventKind. When eventSuppressed[k] is true, that event kind is
+	// suppressed (not recorded; callbacks still forward to Inner). The zero value (all false) means nothing is suppressed.
+	eventSuppressed [countEventKinds]bool
 }
 
 var _ Handler = (*TimingHandler)(nil)
@@ -70,28 +54,12 @@ func NewTimingHandler(rec SpanRecorder, inners ...Handler) *TimingHandler {
 	return th
 }
 
-// resolveTraceContext returns the context to pass to Inner and Record (possibly enriched with
-// *traceFrames), and *traceFrames when present or auto-installed. Callers: ctx, tf := t.resolveTraceContext(ctx).
-func (t *TimingHandler) resolveTraceContext(ctx context.Context) (context.Context, *traceFrames) {
-	if t == nil {
-		return ctx, nil
-	}
-	if tf := traceFramesFromContext(ctx); tf != nil {
-		return ctx, tf
-	}
-	if t.AutoEnsureTraceFrames {
-		tf := newTraceFrames()
-		return context.WithValue(ctx, traceFramesKey, tf), tf
-	}
-	return ctx, nil
-}
-
 func (t *TimingHandler) HandleText(ctx context.Context, text string) {
 	if t.invokeInner() {
 		defer t.Inner.HandleText(ctx, text)
 	}
 
-	if !t.active() {
+	if t.disabled(EventKindLLMGen) {
 		return
 	}
 
@@ -110,7 +78,7 @@ func (t *TimingHandler) HandleLLMStart(ctx context.Context, prompts []string) {
 		defer t.Inner.HandleLLMStart(ctx, prompts)
 	}
 
-	if !t.active() {
+	if t.disabled(EventKindLLMGen) {
 		return
 	}
 
@@ -130,7 +98,12 @@ func (t *TimingHandler) HandleLLMGenerateContentStart(ctx context.Context, ms []
 		defer t.Inner.HandleLLMGenerateContentStart(ctx, ms)
 	}
 
-	if !t.active() {
+	if t.disabled(EventKindLLMGen) {
+		if tf != nil {
+			tf.mu.Lock()
+			tf.stream = streamAgg{}
+			tf.mu.Unlock()
+		}
 		return
 	}
 	if tf == nil {
@@ -141,7 +114,7 @@ func (t *TimingHandler) HandleLLMGenerateContentStart(ctx context.Context, ms []
 	defer tf.mu.Unlock()
 
 	ts := t.now()
-	tf.stack = append(tf.stack, stackFrame{kind: spanLLMGen, start: ts})
+	tf.stack = append(tf.stack, stackFrame{kind: EventKindLLMGen, start: ts})
 	tf.stream = streamAgg{}
 	t.record(ctx, SpanEvent{
 		Name:    "llm_generate",
@@ -158,7 +131,7 @@ func (t *TimingHandler) HandleLLMGenerateContentEnd(ctx context.Context, res *ll
 		defer t.Inner.HandleLLMGenerateContentEnd(ctx, res)
 	}
 
-	if !t.active() {
+	if t.disabled(EventKindLLMGen) {
 		return
 	}
 
@@ -180,7 +153,7 @@ func (t *TimingHandler) HandleLLMGenerateContentEnd(ctx context.Context, res *ll
 	stack := &tf.stack
 	stream := &tf.stream
 
-	if len(*stack) == 0 || (*stack)[len(*stack)-1].kind != spanLLMGen {
+	if len(*stack) == 0 || (*stack)[len(*stack)-1].kind != EventKindLLMGen {
 		t.record(ctx, SpanEvent{
 			Name:   "llm_generate",
 			Op:     SpanOpEnd,
@@ -214,7 +187,7 @@ func (t *TimingHandler) HandleLLMError(ctx context.Context, err error) {
 		defer t.Inner.HandleLLMError(ctx, err)
 	}
 
-	if !t.active() {
+	if t.disabled(EventKindLLMGen) {
 		return
 	}
 
@@ -236,7 +209,7 @@ func (t *TimingHandler) HandleLLMError(ctx context.Context, err error) {
 	stack := &tf.stack
 	stream := &tf.stream
 
-	if len(*stack) == 0 || (*stack)[len(*stack)-1].kind != spanLLMGen {
+	if len(*stack) == 0 || (*stack)[len(*stack)-1].kind != EventKindLLMGen {
 		t.record(ctx, SpanEvent{
 			Name:   "llm_generate",
 			Op:     SpanOpError,
@@ -270,7 +243,7 @@ func (t *TimingHandler) HandleChainStart(ctx context.Context, inputs map[string]
 		defer t.Inner.HandleChainStart(ctx, inputs)
 	}
 
-	if !t.active() {
+	if t.disabled(EventKindChain) {
 		return
 	}
 	if tf == nil {
@@ -281,7 +254,7 @@ func (t *TimingHandler) HandleChainStart(ctx context.Context, inputs map[string]
 	defer tf.mu.Unlock()
 
 	ts := t.now()
-	tf.stack = append(tf.stack, stackFrame{kind: spanChain, start: ts})
+	tf.stack = append(tf.stack, stackFrame{kind: EventKindChain, start: ts})
 	t.record(ctx, SpanEvent{
 		Name:    "chain",
 		Op:      SpanOpStart,
@@ -297,7 +270,7 @@ func (t *TimingHandler) HandleChainEnd(ctx context.Context, outputs map[string]a
 		defer t.Inner.HandleChainEnd(ctx, outputs)
 	}
 
-	if !t.active() {
+	if t.disabled(EventKindChain) {
 		return
 	}
 
@@ -318,7 +291,7 @@ func (t *TimingHandler) HandleChainEnd(ctx context.Context, outputs map[string]a
 
 	stack := &tf.stack
 
-	if len(*stack) == 0 || (*stack)[len(*stack)-1].kind != spanChain {
+	if len(*stack) == 0 || (*stack)[len(*stack)-1].kind != EventKindChain {
 		t.record(ctx, SpanEvent{
 			Name:   "chain",
 			Op:     SpanOpEnd,
@@ -347,7 +320,7 @@ func (t *TimingHandler) HandleChainError(ctx context.Context, err error) {
 		defer t.Inner.HandleChainError(ctx, err)
 	}
 
-	if !t.active() {
+	if t.disabled(EventKindChain) {
 		return
 	}
 
@@ -368,7 +341,7 @@ func (t *TimingHandler) HandleChainError(ctx context.Context, err error) {
 
 	stack := &tf.stack
 
-	if len(*stack) == 0 || (*stack)[len(*stack)-1].kind != spanChain {
+	if len(*stack) == 0 || (*stack)[len(*stack)-1].kind != EventKindChain {
 		t.record(ctx, SpanEvent{
 			Name:   "chain",
 			Op:     SpanOpError,
@@ -397,7 +370,7 @@ func (t *TimingHandler) HandleToolStart(ctx context.Context, input string) {
 		defer t.Inner.HandleToolStart(ctx, input)
 	}
 
-	if !t.active() {
+	if t.disabled(EventKindTool) {
 		return
 	}
 	if tf == nil {
@@ -408,7 +381,7 @@ func (t *TimingHandler) HandleToolStart(ctx context.Context, input string) {
 	defer tf.mu.Unlock()
 
 	ts := t.now()
-	tf.stack = append(tf.stack, stackFrame{kind: spanTool, start: ts})
+	tf.stack = append(tf.stack, stackFrame{kind: EventKindTool, start: ts})
 	t.record(ctx, SpanEvent{
 		Name:    "tool",
 		Op:      SpanOpStart,
@@ -424,7 +397,7 @@ func (t *TimingHandler) HandleToolEnd(ctx context.Context, output string) {
 		defer t.Inner.HandleToolEnd(ctx, output)
 	}
 
-	if !t.active() {
+	if t.disabled(EventKindTool) {
 		return
 	}
 
@@ -445,7 +418,7 @@ func (t *TimingHandler) HandleToolEnd(ctx context.Context, output string) {
 
 	stack := &tf.stack
 
-	if len(*stack) == 0 || (*stack)[len(*stack)-1].kind != spanTool {
+	if len(*stack) == 0 || (*stack)[len(*stack)-1].kind != EventKindTool {
 		t.record(ctx, SpanEvent{
 			Name:   "tool",
 			Op:     SpanOpEnd,
@@ -474,7 +447,7 @@ func (t *TimingHandler) HandleToolError(ctx context.Context, err error) {
 		defer t.Inner.HandleToolError(ctx, err)
 	}
 
-	if !t.active() {
+	if t.disabled(EventKindTool) {
 		return
 	}
 
@@ -495,7 +468,7 @@ func (t *TimingHandler) HandleToolError(ctx context.Context, err error) {
 
 	stack := &tf.stack
 
-	if len(*stack) == 0 || (*stack)[len(*stack)-1].kind != spanTool {
+	if len(*stack) == 0 || (*stack)[len(*stack)-1].kind != EventKindTool {
 		t.record(ctx, SpanEvent{
 			Name:   "tool",
 			Op:     SpanOpError,
@@ -523,7 +496,7 @@ func (t *TimingHandler) HandleAgentAction(ctx context.Context, action schema.Age
 		defer t.Inner.HandleAgentAction(ctx, action)
 	}
 
-	if !t.active() {
+	if t.disabled(EventKindChain) {
 		return
 	}
 
@@ -544,7 +517,7 @@ func (t *TimingHandler) HandleAgentFinish(ctx context.Context, finish schema.Age
 		defer t.Inner.HandleAgentFinish(ctx, finish)
 	}
 
-	if !t.active() {
+	if t.disabled(EventKindChain) {
 		return
 	}
 
@@ -566,7 +539,7 @@ func (t *TimingHandler) HandleRetrieverStart(ctx context.Context, query string) 
 		defer t.Inner.HandleRetrieverStart(ctx, query)
 	}
 
-	if !t.active() {
+	if t.disabled(EventKindRetriever) {
 		return
 	}
 	if tf == nil {
@@ -577,7 +550,7 @@ func (t *TimingHandler) HandleRetrieverStart(ctx context.Context, query string) 
 	defer tf.mu.Unlock()
 
 	ts := t.now()
-	tf.stack = append(tf.stack, stackFrame{kind: spanRetriever, start: ts, query: query})
+	tf.stack = append(tf.stack, stackFrame{kind: EventKindRetriever, start: ts, query: query})
 	t.record(ctx, SpanEvent{
 		Name:    "retriever",
 		Op:      SpanOpStart,
@@ -593,7 +566,7 @@ func (t *TimingHandler) HandleRetrieverEnd(ctx context.Context, query string, do
 		defer t.Inner.HandleRetrieverEnd(ctx, query, documents)
 	}
 
-	if !t.active() {
+	if t.disabled(EventKindRetriever) {
 		return
 	}
 
@@ -616,7 +589,7 @@ func (t *TimingHandler) HandleRetrieverEnd(ctx context.Context, query string, do
 
 	stack := &tf.stack
 
-	if len(*stack) == 0 || (*stack)[len(*stack)-1].kind != spanRetriever {
+	if len(*stack) == 0 || (*stack)[len(*stack)-1].kind != EventKindRetriever {
 		t.record(ctx, SpanEvent{
 			Name:   "retriever",
 			Op:     SpanOpEnd,
@@ -656,7 +629,7 @@ func (t *TimingHandler) HandleStreamingFunc(ctx context.Context, chunk []byte) {
 		defer t.Inner.HandleStreamingFunc(ctx, chunk)
 	}
 
-	if !t.active() {
+	if t.disabled(EventKindStreaming) {
 		return
 	}
 	if tf == nil {
@@ -683,7 +656,7 @@ func (t *TimingHandler) HandleStreamingFunc(ctx context.Context, chunk []byte) {
 		stream.firstChunkAt = &ts
 	}
 
-	topLLM := len(*stack) > 0 && (*stack)[len(*stack)-1].kind == spanLLMGen
+	topLLM := len(*stack) > 0 && (*stack)[len(*stack)-1].kind == EventKindLLMGen
 	orphan := !topLLM
 	attrs := map[string]string{
 		"bytes":            strconv.Itoa(n),
@@ -706,22 +679,30 @@ func (t *TimingHandler) HandleStreamingFunc(ctx context.Context, chunk []byte) {
 	})
 }
 
-func (t *TimingHandler) active() bool {
-	return t != nil && t.Enabled && t.Recorder != nil
+// disabled reports whether recording is suppressed for this callback category (nil handler, global off,
+// no recorder, invalid kind, or event suppressed via SetEvent).
+func (t *TimingHandler) disabled(kind EventKind) bool {
+	if t == nil || !t.Enabled || t.Recorder == nil || !kind.ok() {
+		return true
+	}
+	return t.eventSuppressed[kind]
 }
 
-func finalizeStreamAttrs(s streamAgg, endTime, llmStart time.Time) map[string]string {
-	out := map[string]string{
-		"stream_chunks": strconv.Itoa(s.chunkCount),
-		"stream_bytes":  strconv.Itoa(s.bytesTotal),
+// SetEvent configures per-kind suppression. When suppress is true, TimingHandler does not record spans
+// for that kind; Inner still receives callbacks. The zero value has nothing suppressed (all false).
+func (t *TimingHandler) SetEvent(kind EventKind, suppress bool) {
+	if t == nil || !kind.ok() {
+		return
 	}
+	t.eventSuppressed[kind] = suppress
+}
 
-	if s.firstChunkAt != nil {
-		out["ttft_ns"] = strconv.FormatInt(s.firstChunkAt.Sub(llmStart).Nanoseconds(), 10)
-		out["stream_duration_ns"] = strconv.FormatInt(endTime.Sub(*s.firstChunkAt).Nanoseconds(), 10)
+// GetEvent reports whether the given kind is suppressed (not recorded). Invalid kinds are treated as suppressed.
+func (t *TimingHandler) GetEvent(kind EventKind) (suppressed bool) {
+	if t == nil || !kind.ok() {
+		return true
 	}
-
-	return out
+	return t.eventSuppressed[kind]
 }
 
 // invokeInner reports whether Inner is non-nil and should receive the deferred callback.
@@ -741,6 +722,22 @@ func (t *TimingHandler) record(ctx context.Context, e SpanEvent) {
 	if t.Recorder != nil {
 		t.Recorder.Record(ctx, e)
 	}
+}
+
+// resolveTraceContext returns the context to pass to Inner and Record (possibly enriched with
+// *traceFrames), and *traceFrames when present or auto-installed. Callers: ctx, tf := t.resolveTraceContext(ctx).
+func (t *TimingHandler) resolveTraceContext(ctx context.Context) (context.Context, *traceFrames) {
+	if t == nil {
+		return ctx, nil
+	}
+	if tf := traceFramesFromContext(ctx); tf != nil {
+		return ctx, tf
+	}
+	if t.AutoEnsureTraceFrames {
+		tf := newTraceFrames()
+		return context.WithValue(ctx, traceFramesKey, tf), tf
+	}
+	return ctx, nil
 }
 
 func attrsFromContentResponse(res *llms.ContentResponse) map[string]string {
@@ -812,7 +809,19 @@ func fillDerivedTotalTokens(attrs map[string]string) {
 	attrs["total_tokens"] = strconv.FormatInt(pi+ci, 10)
 }
 
-const stringifyGenInfoMaxLen = 4096
+func finalizeStreamAttrs(s streamAgg, endTime, llmStart time.Time) map[string]string {
+	out := map[string]string{
+		"stream_chunks": strconv.Itoa(s.chunkCount),
+		"stream_bytes":  strconv.Itoa(s.bytesTotal),
+	}
+
+	if s.firstChunkAt != nil {
+		out["ttft_ns"] = strconv.FormatInt(s.firstChunkAt.Sub(llmStart).Nanoseconds(), 10)
+		out["stream_duration_ns"] = strconv.FormatInt(endTime.Sub(*s.firstChunkAt).Nanoseconds(), 10)
+	}
+
+	return out
+}
 
 func stringifyGenInfo(v any) string {
 	s := stringifyGenInfoCore(v)
