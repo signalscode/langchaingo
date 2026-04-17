@@ -29,7 +29,7 @@ func TestTimingHandler_metricsOnly_sliceRecorder(t *testing.T) {
 	t.Parallel()
 	rec := &SliceRecorder{}
 	th := NewTimingRecorder(t, rec, SimpleHandler{})
-	ctx := context.Background()
+	ctx := testCtx(t)
 	th.HandleChainStart(ctx, map[string]any{"x": 1})
 	th.HandleChainEnd(ctx, map[string]any{"y": 2})
 	var starts, ends int
@@ -53,7 +53,7 @@ func TestTimingHandler_combined_metricsAndLoggingObservers(t *testing.T) {
 	a, b := &chainHookCounter{}, &chainHookCounter{}
 	inner := CombiningHandler{Callbacks: []Handler{a, b}}
 	th := NewTimingRecorder(t, rec, inner)
-	ctx := context.Background()
+	ctx := testCtx(t)
 	th.HandleChainStart(ctx, map[string]any{"in": true})
 	th.HandleChainEnd(ctx, map[string]any{"out": true})
 
@@ -120,7 +120,7 @@ func TestTimingHandler_combined_metricsRecordedBeforeDeferredInner(t *testing.T)
 	rec := &SliceRecorder{}
 	inner := &orderAssertingInner{rec: rec}
 	th := NewTimingRecorder(t, rec, inner)
-	ctx := context.Background()
+	ctx := testCtx(t)
 	th.HandleChainStart(ctx, nil)
 	require.Empty(t, inner.err)
 	th.HandleChainEnd(ctx, nil)

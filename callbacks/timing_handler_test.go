@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -11,6 +13,11 @@ import (
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/schema"
 )
+
+func testCtx(tb testing.TB) context.Context {
+	tb.Helper()
+	return ContextWithTraceFrames(context.Background())
+}
 
 func TestAttrsFromContentResponse_usageNormalizationAndJSON(t *testing.T) {
 	t.Parallel()
@@ -61,7 +68,7 @@ func TestTimingHandler_nestedChainAndLLM(t *testing.T) {
 	t.Parallel()
 	rec := &SliceRecorder{}
 	th := NewTimingRecorder(t, rec, SimpleHandler{})
-	ctx := context.Background()
+	ctx := testCtx(t)
 	// Match legacy monotonic clock start (epoch + 1ms steps) for stable duration assertions.
 	fixed := time.Unix(1, 0)
 	step := time.Millisecond
@@ -105,7 +112,7 @@ func TestTimingHandler_LLMStreamThenEnd(t *testing.T) {
 	rec := &SliceRecorder{}
 	th := NewTimingRecorder(t, rec)
 
-	ctx := context.Background()
+	ctx := testCtx(t)
 	th.HandleLLMGenerateContentStart(ctx, nil)
 	th.HandleStreamingFunc(ctx, []byte("a"))
 	th.HandleStreamingFunc(ctx, []byte("bc"))
@@ -131,7 +138,7 @@ func TestTimingHandler_LLMError(t *testing.T) {
 	t.Parallel()
 	rec := &SliceRecorder{}
 	th := NewTimingRecorder(t, rec)
-	ctx := context.Background()
+	ctx := testCtx(t)
 	th.HandleLLMGenerateContentStart(ctx, nil)
 	errTest := errors.New("boom")
 	th.HandleLLMError(ctx, errTest)
@@ -146,7 +153,7 @@ func TestTimingHandler_toolEndOrphan(t *testing.T) {
 	t.Parallel()
 	rec := &SliceRecorder{}
 	th := NewTimingRecorder(t, rec)
-	ctx := context.Background()
+	ctx := testCtx(t)
 	th.HandleToolEnd(ctx, "out")
 
 	var orphan bool
@@ -162,7 +169,7 @@ func TestTimingHandler_retriever(t *testing.T) {
 	t.Parallel()
 	rec := &SliceRecorder{}
 	th := NewTimingRecorder(t, rec)
-	ctx := context.Background()
+	ctx := testCtx(t)
 	q := "query"
 	th.HandleRetrieverStart(ctx, q)
 	docs := []schema.Document{{PageContent: "x"}}
@@ -177,7 +184,7 @@ func TestTimingHandler_chainErrorOrphan(t *testing.T) {
 	t.Parallel()
 	rec := &SliceRecorder{}
 	th := NewTimingRecorder(t, rec)
-	ctx := context.Background()
+	ctx := testCtx(t)
 	th.HandleChainError(ctx, errors.New("chainfail"))
 
 	e := rec.Events[0]
@@ -200,11 +207,43 @@ func TestTimingHandler_streamOrphanWithoutLLM(t *testing.T) {
 	t.Parallel()
 	rec := &SliceRecorder{}
 	th := NewTimingRecorder(t, rec)
-	ctx := context.Background()
+	ctx := testCtx(t)
 	th.HandleStreamingFunc(ctx, []byte("x"))
 	e := rec.Events[0]
 	require.Equal(t, SpanOpStreamChunk, e.Op)
 	require.True(t, e.Orphan)
+}
+
+func TestTimingHandler_SetEvent(t *testing.T) {
+	t.Parallel()
+	rec := &SliceRecorder{}
+	th := NewTimingRecorder(t, rec)
+	ctx := testCtx(t)
+
+	th.SetEvent(EventKindChain, true)
+	th.HandleChainStart(ctx, map[string]any{"k": 1})
+	th.HandleChainEnd(ctx, map[string]any{"o": 1})
+	require.Empty(t, rec.Events, "chain suppressed should not record")
+
+	th.SetEvent(EventKindChain, false)
+	th.HandleChainStart(ctx, map[string]any{"k": 2})
+	th.HandleChainEnd(ctx, map[string]any{"o": 2})
+	require.Len(t, rec.Events, 2)
+
+	th.SetEvent(EventKindStreaming, true)
+	th.HandleLLMGenerateContentStart(ctx, nil)
+	th.HandleStreamingFunc(ctx, []byte("a"))
+	th.HandleLLMGenerateContentEnd(ctx, &llms.ContentResponse{
+		Choices: []*llms.ContentChoice{{Content: "a"}},
+	})
+	streamChunks := 0
+	for _, e := range rec.Events {
+		if e.Name == "llm_stream" {
+			streamChunks++
+		}
+	}
+	require.Equal(t, 0, streamChunks, "streaming suppressed should skip llm_stream chunks")
+	require.True(t, th.GetEvent(EventKindStreaming))
 }
 
 // NewTimingRecorder builds a TimingHandler with a monotonic clock for tests.
@@ -239,4 +278,143 @@ type callCounter struct {
 
 func (c *callCounter) HandleChainStart(ctx context.Context, inputs map[string]any) {
 	c.chainStarts++
+}
+
+func TestTimingHandler_contextMode_concurrentDistinctFramesNoOrphans(t *testing.T) {
+	t.Parallel()
+	rec := &SliceRecorder{}
+	th := NewTimingHandler(rec)
+	th.Now = time.Now
+
+	var wg sync.WaitGroup
+	const n = 20
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ctx := ContextWithTraceFrames(context.Background())
+			th.HandleChainStart(ctx, map[string]any{"k": 1})
+			th.HandleLLMGenerateContentStart(ctx, nil)
+			th.HandleLLMGenerateContentEnd(ctx, &llms.ContentResponse{
+				Choices: []*llms.ContentChoice{{Content: "x"}},
+			})
+			th.HandleChainEnd(ctx, map[string]any{"o": 1})
+		}()
+	}
+	wg.Wait()
+
+	var orphans int
+	for _, e := range rec.Events {
+		if e.Orphan {
+			orphans++
+		}
+	}
+	require.Equal(t, 0, orphans, "overlapping traces should not produce orphan spans: %+v", rec.Events)
+}
+
+// TestTimingHandler_AutoEnsureTraceFrames_concurrent exercises AutoEnsureTraceFrames under many
+// goroutines: each builds a trace using context.Background() on the first callback, then threads
+// the auto-installed *traceFrames via the enriched context captured from the inner handler (mirrors
+// how callers must propagate ctx after the first stack-aware callback).
+func TestTimingHandler_AutoEnsureTraceFrames_concurrent(t *testing.T) {
+	t.Parallel()
+	const (
+		n          = 48
+		wantEvents = 5 * n // chain×2 + llm×2 + one stream chunk per goroutine
+	)
+	rec := &SliceRecorder{}
+	var wg sync.WaitGroup
+	var nilCtxCount atomic.Int32
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			spy := &contextCaptureInner{}
+			th := NewTimingHandler(rec, spy)
+			th.AutoEnsureTraceFrames = true
+			th.Now = time.Now
+
+			th.HandleChainStart(context.Background(), map[string]any{"id": id})
+			if spy.lastCtx == nil {
+				nilCtxCount.Add(1)
+				return
+			}
+			ctx := spy.lastCtx
+
+			th.HandleLLMGenerateContentStart(ctx, nil)
+			th.HandleStreamingFunc(ctx, []byte("z"))
+			th.HandleLLMGenerateContentEnd(ctx, &llms.ContentResponse{
+				Choices: []*llms.ContentChoice{{Content: "x"}},
+			})
+			th.HandleChainEnd(ctx, map[string]any{"out": id})
+		}(i)
+	}
+	wg.Wait()
+
+	require.Equal(t, int32(0), nilCtxCount.Load(), "every chain start should expose enriched ctx to Inner")
+	require.Len(t, rec.Events, wantEvents, "event count: %+v", rec.Events)
+	var orphans int
+	for _, e := range rec.Events {
+		if e.Orphan {
+			orphans++
+		}
+	}
+	require.Equal(t, 0, orphans, "auto-ensure concurrent traces should not produce orphans: %+v", rec.Events)
+}
+
+func TestTimingHandler_contextMode_autoEnsurePropagatesToChildContext(t *testing.T) {
+	t.Parallel()
+	rec := &SliceRecorder{}
+	spy := &contextCaptureInner{}
+	th := NewTimingRecorder(t, rec, spy)
+	th.AutoEnsureTraceFrames = true
+
+	th.HandleChainStart(context.Background(), nil)
+	require.NotNil(t, spy.lastCtx, "inner should see enriched ctx")
+	child := context.WithValue(spy.lastCtx, struct{ k string }{"probe"}, "v")
+	require.NotNil(t, traceFramesFromContext(child), "child ctx should inherit *traceFrames")
+
+	th.HandleLLMGenerateContentStart(child, nil)
+	th.HandleLLMGenerateContentEnd(child, &llms.ContentResponse{
+		Choices: []*llms.ContentChoice{{Content: "ok"}},
+	})
+	th.HandleChainEnd(child, nil)
+
+	var llmEnd *SpanEvent
+	for i := len(rec.Events) - 1; i >= 0; i-- {
+		if rec.Events[i].Name == "llm_generate" && rec.Events[i].Op == SpanOpEnd {
+			llmEnd = &rec.Events[i]
+			break
+		}
+	}
+	require.NotNil(t, llmEnd)
+	require.False(t, llmEnd.Orphan, "llm end should pair with start on same trace: %+v", rec.Events)
+}
+
+func TestTimingHandler_contextMode_wrongRootRecordsOrphanEnd(t *testing.T) {
+	t.Parallel()
+	rec := &SliceRecorder{}
+	th := NewTimingRecorder(t, rec)
+	th.AutoEnsureTraceFrames = false
+
+	ctxTrace := ContextWithTraceFrames(context.Background())
+	th.HandleChainStart(ctxTrace, nil)
+	th.HandleChainEnd(context.Background(), nil)
+
+	var sawOrphanChainEnd bool
+	for _, e := range rec.Events {
+		if e.Name == "chain" && e.Op == SpanOpEnd && e.Orphan {
+			sawOrphanChainEnd = true
+		}
+	}
+	require.True(t, sawOrphanChainEnd, "end on unrelated root should be orphan: %+v", rec.Events)
+}
+
+type contextCaptureInner struct {
+	SimpleHandler
+	lastCtx context.Context
+}
+
+func (c *contextCaptureInner) HandleChainStart(ctx context.Context, inputs map[string]any) {
+	c.lastCtx = ctx
 }

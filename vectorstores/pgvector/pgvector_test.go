@@ -137,6 +137,12 @@ func makeNewCollectionName() string {
 	return fmt.Sprintf("test-collection-%s", uuid.New().String())
 }
 
+// pgvectorTestOptions prepends WithTryCreateExtention(true) so integration tests
+// against fresh Postgres (e.g. testcontainers) run CREATE EXTENSION vector when needed.
+func pgvectorTestOptions(opts ...pgvector.Option) []pgvector.Option {
+	return append([]pgvector.Option{pgvector.WithTryCreateExtention(true)}, opts...)
+}
+
 func cleanupTestArtifacts(ctx context.Context, t *testing.T, s pgvector.Store, pgvectorURL string) {
 	t.Helper()
 
@@ -170,13 +176,12 @@ func TestPgvectorStoreRest(t *testing.T) {
 	conn, err := pgx.Connect(ctx, pgvectorURL)
 	require.NoError(t, err)
 
-	store, err := pgvector.New(
-		ctx,
+	store, err := pgvector.New(ctx, pgvectorTestOptions(
 		pgvector.WithConn(conn),
 		pgvector.WithEmbedder(e),
 		pgvector.WithPreDeleteCollection(true),
 		pgvector.WithCollectionName(makeNewCollectionName()),
-	)
+	)...)
 	require.NoError(t, err)
 
 	defer cleanupTestArtifacts(ctx, t, store, pgvectorURL)
@@ -215,13 +220,12 @@ func TestPgvectorStoreRestWithScoreThreshold(t *testing.T) {
 	conn, err := pgx.Connect(ctx, pgvectorURL)
 	require.NoError(t, err)
 
-	store, err := pgvector.New(
-		ctx,
+	store, err := pgvector.New(ctx, pgvectorTestOptions(
 		pgvector.WithConn(conn),
 		pgvector.WithEmbedder(e),
 		pgvector.WithPreDeleteCollection(true),
 		pgvector.WithCollectionName(makeNewCollectionName()),
-	)
+	)...)
 	require.NoError(t, err)
 
 	defer cleanupTestArtifacts(ctx, t, store, pgvectorURL)
@@ -279,13 +283,12 @@ func TestPgvectorStoreSimilarityScore(t *testing.T) {
 	conn, err := pgx.Connect(ctx, pgvectorURL)
 	require.NoError(t, err)
 
-	store, err := pgvector.New(
-		ctx,
+	store, err := pgvector.New(ctx, pgvectorTestOptions(
 		pgvector.WithConn(conn),
 		pgvector.WithEmbedder(e),
 		pgvector.WithPreDeleteCollection(true),
 		pgvector.WithCollectionName(makeNewCollectionName()),
-	)
+	)...)
 	require.NoError(t, err)
 
 	defer cleanupTestArtifacts(ctx, t, store, pgvectorURL)
@@ -328,13 +331,12 @@ func TestSimilaritySearchWithInvalidScoreThreshold(t *testing.T) {
 	conn, err := pgx.Connect(ctx, pgvectorURL)
 	require.NoError(t, err)
 
-	store, err := pgvector.New(
-		ctx,
+	store, err := pgvector.New(ctx, pgvectorTestOptions(
 		pgvector.WithConn(conn),
 		pgvector.WithEmbedder(e),
 		pgvector.WithPreDeleteCollection(true),
 		pgvector.WithCollectionName(makeNewCollectionName()),
-	)
+	)...)
 	require.NoError(t, err)
 
 	defer cleanupTestArtifacts(ctx, t, store, pgvectorURL)
@@ -409,13 +411,12 @@ func TestSimilaritySearchWithDifferentDimensions(t *testing.T) {
 	conn, err := pgx.Connect(ctx, pgvectorURL)
 	require.NoError(t, err)
 
-	store, err := pgvector.New(
-		ctx,
+	store, err := pgvector.New(ctx, pgvectorTestOptions(
 		pgvector.WithConn(conn),
 		pgvector.WithEmbedder(e),
 		pgvector.WithPreDeleteCollection(true),
 		pgvector.WithCollectionName(collectionName),
-	)
+	)...)
 	require.NoError(t, err)
 
 	defer cleanupTestArtifacts(ctx, t, store, pgvectorURL)
@@ -428,13 +429,12 @@ func TestSimilaritySearchWithDifferentDimensions(t *testing.T) {
 	// use openai embedding (now default model is text-embedding-ada-002, with dimensions:1536) to add some data to same collection (same table)
 	e = createOpenAIEmbedder(t)
 
-	store, err = pgvector.New(
-		ctx,
+	store, err = pgvector.New(ctx, pgvectorTestOptions(
 		pgvector.WithConn(conn),
 		pgvector.WithEmbedder(e),
 		pgvector.WithPreDeleteCollection(false),
 		pgvector.WithCollectionName(collectionName),
-	)
+	)...)
 	require.NoError(t, err)
 
 	defer cleanupTestArtifacts(ctx, t, store, pgvectorURL)
@@ -481,13 +481,12 @@ func TestPgvectorAsRetriever(t *testing.T) {
 	conn, err := pgx.Connect(ctx, pgvectorURL)
 	require.NoError(t, err)
 
-	store, err := pgvector.New(
-		ctx,
+	store, err := pgvector.New(ctx, pgvectorTestOptions(
 		pgvector.WithConn(conn),
 		pgvector.WithEmbedder(e),
 		pgvector.WithPreDeleteCollection(true),
 		pgvector.WithCollectionName(makeNewCollectionName()),
-	)
+	)...)
 	require.NoError(t, err)
 
 	defer cleanupTestArtifacts(ctx, t, store, pgvectorURL)
@@ -533,13 +532,12 @@ func TestPgvectorAsRetrieverWithScoreThreshold(t *testing.T) {
 	conn, err := pgx.Connect(ctx, pgvectorURL)
 	require.NoError(t, err)
 
-	store, err := pgvector.New(
-		ctx,
+	store, err := pgvector.New(ctx, pgvectorTestOptions(
 		pgvector.WithConn(conn),
 		pgvector.WithEmbedder(e),
 		pgvector.WithPreDeleteCollection(true),
 		pgvector.WithCollectionName(makeNewCollectionName()),
-	)
+	)...)
 	require.NoError(t, err)
 
 	defer cleanupTestArtifacts(ctx, t, store, pgvectorURL)
@@ -590,13 +588,12 @@ func TestPgvectorAsRetrieverWithMetadataFilterNotSelected(t *testing.T) {
 	conn, err := pgx.Connect(ctx, pgvectorURL)
 	require.NoError(t, err)
 
-	store, err := pgvector.New(
-		ctx,
+	store, err := pgvector.New(ctx, pgvectorTestOptions(
 		pgvector.WithConn(conn),
 		pgvector.WithEmbedder(e),
 		pgvector.WithPreDeleteCollection(true),
 		pgvector.WithCollectionName(makeNewCollectionName()),
-	)
+	)...)
 	require.NoError(t, err)
 
 	defer cleanupTestArtifacts(ctx, t, store, pgvectorURL)
@@ -675,13 +672,12 @@ func TestPgvectorAsRetrieverWithMetadataFilters(t *testing.T) {
 	conn, err := pgx.Connect(ctx, pgvectorURL)
 	require.NoError(t, err)
 
-	store, err := pgvector.New(
-		ctx,
+	store, err := pgvector.New(ctx, pgvectorTestOptions(
 		pgvector.WithConn(conn),
 		pgvector.WithEmbedder(e),
 		pgvector.WithPreDeleteCollection(true),
 		pgvector.WithCollectionName(makeNewCollectionName()),
-	)
+	)...)
 	require.NoError(t, err)
 
 	defer cleanupTestArtifacts(ctx, t, store, pgvectorURL)
@@ -750,13 +746,12 @@ func TestDeduplicater(t *testing.T) {
 	conn, err := pgx.Connect(ctx, pgvectorURL)
 	require.NoError(t, err)
 
-	store, err := pgvector.New(
-		ctx,
+	store, err := pgvector.New(ctx, pgvectorTestOptions(
 		pgvector.WithConn(conn),
 		pgvector.WithEmbedder(e),
 		pgvector.WithPreDeleteCollection(true),
 		pgvector.WithCollectionName(makeNewCollectionName()),
-	)
+	)...)
 	require.NoError(t, err)
 
 	defer cleanupTestArtifacts(ctx, t, store, pgvectorURL)
@@ -801,8 +796,7 @@ func TestWithAllOptions(t *testing.T) {
 	require.NoError(t, err)
 	defer conn.Close(ctx)
 
-	store, err := pgvector.New(
-		ctx,
+	store, err := pgvector.New(ctx, pgvectorTestOptions(
 		pgvector.WithConn(conn),
 		pgvector.WithEmbedder(e),
 		pgvector.WithPreDeleteCollection(true),
@@ -814,7 +808,7 @@ func TestWithAllOptions(t *testing.T) {
 		}),
 		pgvector.WithVectorDimensions(1536),
 		pgvector.WithHNSWIndex(16, 64, "vector_l2_ops"),
-	)
+	)...)
 	require.NoError(t, err)
 
 	defer cleanupTestArtifacts(ctx, t, store, pgvectorURL)
@@ -834,8 +828,7 @@ func TestWithAllOptions(t *testing.T) {
 	require.Equal(t, "japan", docs[0].Metadata["country"])
 
 	e = createOpenAIEmbedder(t)
-	store, err = pgvector.New(
-		ctx,
+	store, err = pgvector.New(ctx, pgvectorTestOptions(
 		pgvector.WithConn(conn),
 		pgvector.WithEmbedder(e),
 		pgvector.WithPreDeleteCollection(true),
@@ -847,7 +840,7 @@ func TestWithAllOptions(t *testing.T) {
 		}),
 		pgvector.WithVectorDimensions(1536),
 		pgvector.WithHNSWIndex(16, 64, "vector_l2_ops"),
-	)
+	)...)
 	require.NoError(t, err)
 
 	defer cleanupTestArtifacts(ctx, t, store, pgvectorURL)

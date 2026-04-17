@@ -7,15 +7,15 @@ import (
 type handlerCtxKey struct{}
 
 // ContextWithHandler attaches handlers to ctx. If ctx already carries a handler, the new
-// handlers are composed after the existing one (Coalesce(existing, Coalesce(handlers...))).
+// handlers are composed after the existing one (NewCombiningHandler(existing, NewCombiningHandler(handlers...))).
 // If all handlers are nil, ctx is returned unchanged.
 func ContextWithHandler(parent context.Context, handlers ...Handler) context.Context {
-	h := Coalesce(handlers...)
+	h := NewCombiningHandler(handlers...)
 	if h == nil {
 		return parent
 	}
 	if prev, ok := HandlerFromContext(parent); ok && prev != nil {
-		h = Coalesce(prev, h)
+		h = NewCombiningHandler(prev, h)
 	}
 	return context.WithValue(parent, handlerCtxKey{}, h)
 }
@@ -36,10 +36,10 @@ func HandlerFromContext(ctx context.Context) (Handler, bool) {
 	return h, true
 }
 
-// EffectiveHandler returns Coalesce(handlerFromContext, handlers...) with nils dropped.
+// EffectiveHandler returns NewCombiningHandler(handlerFromContext, handlers...) with nils dropped.
 // The context-derived handler runs first when present. A process-wide default may be
 // composed here in a future version.
 func EffectiveHandler(ctx context.Context, handlers ...Handler) Handler {
 	ctxH, _ := HandlerFromContext(ctx)
-	return Coalesce(append([]Handler{ctxH}, handlers...)...)
+	return NewCombiningHandler(append([]Handler{ctxH}, handlers...)...)
 }

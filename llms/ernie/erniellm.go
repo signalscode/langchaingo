@@ -73,8 +73,9 @@ func (o *LLM) Call(ctx context.Context, prompt string, options ...llms.CallOptio
 // GenerateContent implements the Model interface.
 func (o *LLM) GenerateContent(ctx context.Context, messages []llms.MessageContent, options ...llms.CallOption) (*llms.ContentResponse, error) { //nolint: lll, cyclop, whitespace
 
-	if o.CallbacksHandler != nil {
-		o.CallbacksHandler.HandleLLMGenerateContentStart(ctx, messages)
+	cb := callbacks.EffectiveHandler(ctx, o.CallbacksHandler)
+	if cb != nil {
+		cb.HandleLLMGenerateContentStart(ctx, messages)
 	}
 
 	opts := &llms.CallOptions{}
@@ -94,16 +95,16 @@ func (o *LLM) GenerateContent(ctx context.Context, messages []llms.MessageConten
 		Stream:        opts.StreamingFunc != nil,
 	})
 	if err != nil {
-		if o.CallbacksHandler != nil {
-			o.CallbacksHandler.HandleLLMError(ctx, err)
+		if cb != nil {
+			cb.HandleLLMError(ctx, err)
 		}
 		return nil, err
 	}
 	if result.ErrorCode > 0 {
 		err = fmt.Errorf("%w, error_code:%v, erro_msg:%v, id:%v",
 			ErrCodeResponse, result.ErrorCode, result.ErrorMsg, result.ID)
-		if o.CallbacksHandler != nil {
-			o.CallbacksHandler.HandleLLMError(ctx, err)
+		if cb != nil {
+			cb.HandleLLMError(ctx, err)
 		}
 		return nil, err
 	}
@@ -115,8 +116,8 @@ func (o *LLM) GenerateContent(ctx context.Context, messages []llms.MessageConten
 			},
 		},
 	}
-	if o.CallbacksHandler != nil {
-		o.CallbacksHandler.HandleLLMGenerateContentEnd(ctx, resp)
+	if cb != nil {
+		cb.HandleLLMGenerateContentEnd(ctx, resp)
 	}
 
 	return resp, nil

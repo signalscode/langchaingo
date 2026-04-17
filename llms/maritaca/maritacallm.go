@@ -50,8 +50,9 @@ func (o *LLM) Call(ctx context.Context, prompt string, options ...llms.CallOptio
 
 // GenerateContent implements the Model interface.
 func (o *LLM) GenerateContent(ctx context.Context, messages []llms.MessageContent, options ...llms.CallOption) (*llms.ContentResponse, error) { // nolint: lll, cyclop, funlen
-	if o.CallbacksHandler != nil {
-		o.CallbacksHandler.HandleLLMGenerateContentStart(ctx, messages)
+	cb := callbacks.EffectiveHandler(ctx, o.CallbacksHandler)
+	if cb != nil {
+		cb.HandleLLMGenerateContentStart(ctx, messages)
 	}
 
 	opts := llms.CallOptions{}
@@ -137,8 +138,8 @@ func (o *LLM) GenerateContent(ctx context.Context, messages []llms.MessageConten
 	o.client.Token = o.options.maritacaOptions.Token
 	err := o.client.Generate(ctx, req, fn)
 	if err != nil {
-		if o.CallbacksHandler != nil {
-			o.CallbacksHandler.HandleLLMError(ctx, err)
+		if cb != nil {
+			cb.HandleLLMError(ctx, err)
 		}
 		return nil, err
 	}
@@ -147,8 +148,8 @@ func (o *LLM) GenerateContent(ctx context.Context, messages []llms.MessageConten
 
 	response := &llms.ContentResponse{Choices: choices}
 
-	if o.CallbacksHandler != nil {
-		o.CallbacksHandler.HandleLLMGenerateContentEnd(ctx, response)
+	if cb != nil {
+		cb.HandleLLMGenerateContentEnd(ctx, response)
 	}
 
 	return response, nil

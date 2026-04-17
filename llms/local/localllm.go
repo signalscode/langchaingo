@@ -60,8 +60,9 @@ func (o *LLM) appendGlobalsToArgs(opts llms.CallOptions) {
 // GenerateContent implements the Model interface.
 func (o *LLM) GenerateContent(ctx context.Context, messages []llms.MessageContent, options ...llms.CallOption) (*llms.ContentResponse, error) { //nolint: lll, cyclop, whitespace
 
-	if o.CallbacksHandler != nil {
-		o.CallbacksHandler.HandleLLMGenerateContentStart(ctx, messages)
+	cb := callbacks.EffectiveHandler(ctx, o.CallbacksHandler)
+	if cb != nil {
+		cb.HandleLLMGenerateContentStart(ctx, messages)
 	}
 
 	opts := &llms.CallOptions{}
@@ -82,6 +83,9 @@ func (o *LLM) GenerateContent(ctx context.Context, messages []llms.MessageConten
 		Prompt: part.(llms.TextContent).Text,
 	})
 	if err != nil {
+		if cb != nil {
+			cb.HandleLLMError(ctx, err)
+		}
 		return nil, err
 	}
 
@@ -93,8 +97,8 @@ func (o *LLM) GenerateContent(ctx context.Context, messages []llms.MessageConten
 		},
 	}
 
-	if o.CallbacksHandler != nil {
-		o.CallbacksHandler.HandleLLMGenerateContentEnd(ctx, resp)
+	if cb != nil {
+		cb.HandleLLMGenerateContentEnd(ctx, resp)
 	}
 
 	return resp, nil

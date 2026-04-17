@@ -31,12 +31,16 @@ func (wx *LLM) Call(ctx context.Context, prompt string, options ...llms.CallOpti
 // GenerateContent implements the Model interface.
 func (wx *LLM) GenerateContent(ctx context.Context, messages []llms.MessageContent, options ...llms.CallOption) (*llms.ContentResponse, error) { //nolint: lll, cyclop, whitespace
 
-	if wx.CallbacksHandler != nil {
-		wx.CallbacksHandler.HandleLLMGenerateContentStart(ctx, messages)
+	cb := callbacks.EffectiveHandler(ctx, wx.CallbacksHandler)
+	if cb != nil {
+		cb.HandleLLMGenerateContentStart(ctx, messages)
 	}
 
 	prompt, err := getPrompt(messages)
 	if err != nil {
+		if cb != nil {
+			cb.HandleLLMError(ctx, err)
+		}
 		return nil, err
 	}
 
@@ -46,13 +50,16 @@ func (wx *LLM) GenerateContent(ctx context.Context, messages []llms.MessageConte
 		toWatsonxOptions(&options)...,
 	)
 	if err != nil {
-		if wx.CallbacksHandler != nil {
-			wx.CallbacksHandler.HandleLLMError(ctx, err)
+		if cb != nil {
+			cb.HandleLLMError(ctx, err)
 		}
 		return nil, err
 	}
 
 	if result.Text == "" {
+		if cb != nil {
+			cb.HandleLLMError(ctx, ErrEmptyResponse)
+		}
 		return nil, ErrEmptyResponse
 	}
 
@@ -62,6 +69,9 @@ func (wx *LLM) GenerateContent(ctx context.Context, messages []llms.MessageConte
 				Content: result.Text,
 			},
 		},
+	}
+	if cb != nil {
+		cb.HandleLLMGenerateContentEnd(ctx, resp)
 	}
 	return resp, nil
 }
