@@ -91,7 +91,7 @@ require (
 	golang.org/x/tools v0.51.0
 	google.golang.org/api v0.265.0
 	google.golang.org/genai v1.40.0
-	google.golang.org/grpc v1.83.0
+	google.golang.org/grpc v1.83.2
 	google.golang.org/protobuf v1.36.11
 	sigs.k8s.io/yaml v1.4.0
 )
