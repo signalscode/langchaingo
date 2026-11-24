@@ -76,7 +76,7 @@ require (
 	cloud.google.com/go/alloydbconn v1.13.2
 	cloud.google.com/go/cloudsqlconn v1.14.1
 	github.com/go-sql-driver/mysql v1.8.1
-	github.com/jackc/pgx/v5 v5.7.2
+	github.com/jackc/pgx/v5 v5.9.2
 	github.com/mattn/go-sqlite3 v1.14.17
 )
 
